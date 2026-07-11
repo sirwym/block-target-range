@@ -114,7 +114,8 @@ export function createHealthBar(scene) {
 }
 
 export function spawnTarget({ scene, textures, state, initial = false, options = {}, nextLaneIndex }) {
-  const elapsed = GAME_CONFIG.duration - state.timeLeft;
+  // options.elapsed 优先（weaponLab 敌人模式传入自定义 elapsed）；否则用靶场 state.timeLeft 计算
+  const elapsed = options.elapsed ?? (GAME_CONFIG.duration - state.timeLeft);
   const wave = getWaveProfile(elapsed);
   const isCreeper = options.forceCreeper ?? (wave.allowCreeper && Math.random() < wave.creeperChance);
   const model = isCreeper ? createCreeperTarget(scene, textures) : createZombieTarget(scene, textures);
@@ -123,20 +124,32 @@ export function spawnTarget({ scene, textures, state, initial = false, options =
   const healthBar = createHealthBar(scene);
   healthBar.group.parent = group;
 
-  const laneIndex = initial ? Math.floor(Math.random() * GAME_CONFIG.lanes.length) : nextLaneIndex();
-  const laneX = GAME_CONFIG.lanes[laneIndex];
-  const z = initial ? randFloat(-23, -11) : GAME_CONFIG.spawnZ;
+  // customPosition 供 weaponLab 死靶放置：跳过 lane 分配，直接用指定坐标。
+  // laneX 仍设为 customPosition.x，让 updateTarget 的 lerp 无副作用（lerp(x, x, t) = x）。
+  const useCustomPosition = Boolean(options.customPosition);
+  const laneIndex = useCustomPosition ? -1 : (initial ? Math.floor(Math.random() * GAME_CONFIG.lanes.length) : nextLaneIndex());
+  const laneX = useCustomPosition ? options.customPosition.x : GAME_CONFIG.lanes[laneIndex];
+  const z = useCustomPosition ? options.customPosition.z : (initial ? randFloat(-23, -11) : GAME_CONFIG.spawnZ);
+  const baseY = useCustomPosition ? options.customPosition.y : 0.04;
   const kind = isCreeper ? "creeper" : "zombie";
   const maxHealth = ENEMY_STATS[kind]?.health ?? 1;
-  group.position.set(laneX, 0.04, z);
+  group.position.set(laneX, baseY, z);
   group.scaling.setAll(isCreeper ? 1.22 : 1.18);
 
+  // options.speed 优先（死靶传 0）；未传则按波次随机（靶场模式行为不变）
+  const speed = options.speed ?? randFloat(...(isCreeper ? wave.creeperSpeed : wave.zombieSpeed));
   group.metadata = {
-    baseY: 0.04,
+    baseY,
     laneX,
     health: maxHealth,
     maxHealth,
-    speed: randFloat(...(isCreeper ? wave.creeperSpeed : wave.zombieSpeed)),
+    speed,
+    // 假人标记：updateTarget 据此跳过 z 后退，hitTarget 据此走隐藏+重生而非 dispose
+    isDummy: Boolean(options.isDummy),
+    // 敌人标记：hitTarget 据此走 dispose+统计，不走 defeatTarget 的 score/combo/targets.splice
+    isEnemy: Boolean(options.isEnemy),
+    // 动靶标记：updateTarget 据此跳过 z 后退（避免脱离固定 z 平面），hitTarget 据此走隐藏+重生换相位
+    isMoving: Boolean(options.isMoving),
     collisionRadius: isCreeper ? 0.92 : 0.9,
     collisionHeight: isCreeper ? 3.4 : 3.35,
     points: isCreeper ? 12 : 10,
@@ -170,7 +183,9 @@ export function updateTarget(target, delta, elapsed, solidColliders) {
   }
   group.position.x = lerp(group.position.x, data.laneX, 0.2);
   group.position.y = data.baseY + Math.sin(elapsed * 8 + data.phase) * 0.055;
-  if (data.hitTimer > 0) group.position.z -= 0.08;
+  // 假人/动靶被击中时不后退：否则 hitTimer 0.2s 内每帧 z-=0.08 会累积偏移，
+  // 假人会前滑约 1 单位，动靶会脱离固定 z 平面破坏跟枪命中判定
+  if (data.hitTimer > 0 && !data.isDummy && !data.isMoving) group.position.z -= 0.08;
   animateTarget(target, elapsed);
 }
 

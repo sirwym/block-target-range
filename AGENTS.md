@@ -13,6 +13,26 @@
 - 排查 Babylon.js、MCP、材质、粒子、GUI、模型加载或渲染问题时，先看 `docs/Babylon官方资料与测试方向.md`；本地文档没有合适答案时，要去 Babylon 官方文档、API、Playground、官方论坛或 GitHub 查找，再把可复用结论补回文档。
 - 外部资源只复制项目实际使用的最小集合，不整包复制模组；新增资源时在 docs 中记录来源和授权注意事项。
 
+## UI 素材优先规则
+
+- 涉及 HUD、面板、按钮、热栏、准星、图标、进度条、容器背景、武器试验场看板等 UI/GUI 改动时，先到本地素材包查找可复用资源，再决定是否自己设计。
+- 素材查找优先级固定为：先查 `我的世界素材/tac-mod-resourcesV2/`，再查 `我的世界素材/tac-mod-resources/`，最后查原版 Minecraft 风格素材目录。
+- V2 优先查找路径：`我的世界素材/tac-mod-resourcesV2/assets/tacz/custom/tacz_default_gun/`、`我的世界素材/tac-mod-resourcesV2/assets/tacz/textures/`、`我的世界素材/tac-mod-resourcesV2/assets/tacz/sounds.json`。
+- 旧 TaC 备用路径：`我的世界素材/tac-mod-resources/assets/tac/textures/gui/`、`我的世界素材/tac-mod-resources/assets/tac/textures/crosshair/`、`我的世界素材/tac-mod-resources/assets/tac/textures/crosshair_hit/`、`我的世界素材/tac-mod-resources/assets/tac/sounds/`。
+- 原版素材最后查找路径：`我的世界素材/gui/`、`我的世界素材/gui/container/`、`我的世界素材/block/`、`我的世界素材/entity/`、`我的世界素材/item/`。
+- 如果素材包里有合适资源，只把实际使用的最小文件复制到项目 `assets/` 或 `public/` 下，并在代码配置里引用复制后的稳定路径；不要直接运行时引用 `我的世界素材/`，该目录已被 `.gitignore` 忽略。
+- 如果素材包找不到合适资源，再自己设计；自设计 UI 也要保持 Minecraft/像素枪械风格，避免临时灰色矩形、纯 CSS 拼凑感和与素材包风格割裂的面板。
+- 新增或替换 UI 素材时，同步更新 `docs/资源与授权.md` 或相关调试文档，说明来源路径、复制目标和用途。
+
+## 测试分层
+
+项目有两层测试，各司其职：
+
+- **Node test**（`npm test`）：覆盖稳定逻辑规则——武器状态、弹匣换弹、自动/半自动、音频缓存、资源存在性、碰撞、评分、模型结构。运行快，开发时频繁跑。
+- **Playwright E2E**（`npm run test:e2e`）：浏览器视觉验收——武器切换、3D 模型渲染、控制台错误、截图对比。运行慢（约 40s），提交前或改视觉相关代码后手动跑。
+- **不需要 MCP 浏览器**：Playwright headless 比 MCP Chrome 快得多，脚本断言比 AI 看图准。日常验收用 `npm run dev` 手动打开浏览器即可。
+- `npm run check` 只跑 Node test + 构建，不包含 E2E，避免拖慢日常开发节奏。CI 或合并前单独跑 E2E。
+
 ## 文档同步
 
 - 根目录只保留轻量规则，具体说明写入 `docs/`。

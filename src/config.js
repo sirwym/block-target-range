@@ -45,6 +45,23 @@ export const ASSET_PATHS = {
   creeper: "assets/minecraft/entity/creeper/creeper.png",
   tacMuzzleFlash: "assets/tac/effects/muzzle_flash.png",
   tacHitMarker: "assets/tac/effects/hit_marker.png",
+  // 像素准星贴图（16x16），每把武器配不同风格
+  crosshair: {
+    dot: "assets/tac/textures/crosshair/dot.png",
+    circle: "assets/tac/textures/crosshair/circle.png",
+    dynamic: "assets/tac/textures/crosshair/dynamic_default.png",
+    better: "assets/tac/textures/crosshair/better_default.png",
+    round: "assets/tac/textures/crosshair/round.png",
+  },
+  // GUI 像素素材
+  gui: {
+    reloadbar: "assets/tac/textures/gui/reloadbar.png",
+    ammoslots: "assets/tac/textures/gui/ammoslots.png",
+    firemodeAuto: "assets/tac/textures/gui/firemode_auto.png",
+    firemodeSemi: "assets/tac/textures/gui/firemode_semi.png",
+    armorBackdrop: "assets/tac/textures/gui/armor_backdrop.png",
+    armorFiller: "assets/tac/textures/gui/armor_filler.png",
+  },
   weapons: {
     glock17: "assets/tac/weapons/glock17.png",
     m4: "assets/tac/weapons/m4.png",
@@ -53,8 +70,7 @@ export const ASSET_PATHS = {
     p90: "assets/tac/weapons/p90.png",
   },
   weaponModels: {
-    p90: "assets/tac/models/p90/p90_static.gltf",
-    p90BlockModel: "assets/tac/models/p90/p90_model.json",
+    p90: "assets/tac/models/p90/p90_model.json",
     glock17: "assets/tac/models/glock17/glock17.json",
     m4: "assets/tac/models/m4/m4.json",
     ak47: "assets/tac/models/ak47/ak47.json",
@@ -115,16 +131,19 @@ export const WEAPON_CONFIG = {
     reloadSound: "glock17Reload",
     iconPath: ASSET_PATHS.weapons.glock17,
     tracerInterval: 1,
-    display: { offsetX: 1.05, offsetY: -0.66, scale: 1.0, rotationZ: -0.32, flipX: true, flipY: false },
+    // 像素准星：手枪用 dot（单点，精准瞄准）
+    crosshair: { image: ASSET_PATHS.crosshair.dot },
     // 3D 模型配置：position/rotation/scaling 控制模型在相机坐标系中的变换，
-    // muzzleOffset 是枪口火焰位置（相对相机），每把枪独立校准。
-    // 初始值参考 P90 的位置，需浏览器验收微调。
+    // muzzleLocalPosition 是枪口锚点在武器 root 下的位置，枪口火焰会跟随该锚点。
     modelConfig: {
-      position: [0.5, -0.55, 1.15],
-      rotation: [-0.08, -0.2, 0.02],
-      scaling: 1.3,
-      muzzleOffset: [0.64, -0.5, 1.2],
+      position: [0.54, -0.43, 1.15],
+      rotation: [-0.08, -0.22, 0.02],
+      scaling: 0.95,
+      // 手枪枪管短，锚点略前推到枪口位置
+      muzzleLocalPosition: [-0.20, 0.12, 0.45],
     },
+    // 枪口火焰视觉参数：size=世界单位大小，alpha=透明度，rotationRandom=每次开火贴图随机旋转弧度
+    muzzleFlash: { size: 0.22, alpha: 0.8, rotationRandom: Math.PI * 2 },
   },
   m4: {
     id: "m4",
@@ -141,14 +160,17 @@ export const WEAPON_CONFIG = {
     reloadSound: "m4Reload",
     iconPath: ASSET_PATHS.weapons.m4,
     tracerInterval: 2,
-    display: { offsetX: 1.08, offsetY: -0.62, scale: 1.05, rotationZ: -0.32, flipX: true, flipY: false },
-    // 3D 模型配置：步枪比手枪大，初始值参考 glock17 粗调，后续浏览器微调。
+    // 像素准星：步枪用 round（圆形+中心十字，清晰瞄准）
+    crosshair: { image: ASSET_PATHS.crosshair.round },
+    // 3D 模型配置：步枪比手枪大，保持右下角可见且不压住准星。
     modelConfig: {
-      position: [0.55, -0.6, 1.2],
-      rotation: [-0.08, -0.2, 0.02],
-      scaling: 1.5,
-      muzzleOffset: [0.7, -0.5, 1.3],
+      position: [0.56, -0.46, 1.22],
+      rotation: [-0.08, -0.26, 0.02],
+      scaling: 1.08,
+      muzzleLocalPosition: [-0.25, 0.20, 0.55],
     },
+    // M4 枪火保持当前视觉，仅补配置避免回归
+    muzzleFlash: { size: 0.32, alpha: 0.85, rotationRandom: Math.PI * 2 },
   },
   ak47: {
     id: "ak47",
@@ -165,14 +187,17 @@ export const WEAPON_CONFIG = {
     reloadSound: "ak47Reload",
     iconPath: ASSET_PATHS.weapons.ak47,
     tracerInterval: 2,
-    display: { offsetX: 1.06, offsetY: -0.64, scale: 1.05, rotationZ: -0.32, flipX: true, flipY: false },
-    // 3D 模型配置：步枪比手枪大，初始值参考 glock17 粗调，后续浏览器微调。
+    // 像素准星：AK47 用 better_default（精细十字，高后坐力武器配清晰准星）
+    crosshair: { image: ASSET_PATHS.crosshair.better },
+    // 3D 模型配置：步枪比手枪大，保持右下角可见且不压住准星。
     modelConfig: {
-      position: [0.55, -0.6, 1.2],
-      rotation: [-0.08, -0.2, 0.02],
-      scaling: 1.5,
-      muzzleOffset: [0.7, -0.5, 1.3],
+      position: [0.55, -0.46, 1.2],
+      rotation: [-0.08, -0.25, 0.02],
+      scaling: 1.12,
+      muzzleLocalPosition: [-0.10, 0.05, 1.1],
     },
+    // AK47 枪火保持当前视觉，仅补配置避免回归
+    muzzleFlash: { size: 0.34, alpha: 0.85, rotationRandom: Math.PI * 2 },
   },
   awp: {
     id: "awp",
@@ -189,14 +214,20 @@ export const WEAPON_CONFIG = {
     reloadSound: "awpReload",
     iconPath: ASSET_PATHS.weapons.awp,
     tracerInterval: 1,
-    display: { offsetX: 1.1, offsetY: -0.58, scale: 1.15, rotationZ: -0.32, flipX: true, flipY: false },
-    // 3D 模型配置：狙击枪更长，初始值参考 glock17 粗调，后续浏览器微调。
+    // 像素准星：AWP 不用普通准星，右键开镜时显示瞄准镜蒙版
+    crosshair: { image: ASSET_PATHS.crosshair.dot, hiddenByAds: true },
+    // AWP 开镜配置：fov=开镜后视野角度，sensitivityScale=鼠标灵敏度倍率
+    ads: { fov: 0.35, sensitivityScale: 0.5 },
+    // 3D 模型配置：狙击枪更长，缩放更克制以减少热栏遮挡。
     modelConfig: {
-      position: [0.55, -0.55, 1.3],
-      rotation: [-0.08, -0.2, 0.02],
-      scaling: 1.7,
-      muzzleOffset: [0.75, -0.45, 1.4],
+      position: [0.55, -0.42, 1.28],
+      rotation: [-0.08, -0.24, 0.02],
+      scaling: 1.15,
+      // AWP 枪管长，锚点大幅前推到长枪管前端，避免落在枪身中段
+      muzzleLocalPosition: [-0.40, 0.15, 0.20],
     },
+    // AWP 枪火略大，配合长枪管视觉
+    muzzleFlash: { size: 0.38, alpha: 0.82, rotationRandom: Math.PI * 2 },
   },
   p90: {
     id: "p90",
@@ -215,7 +246,17 @@ export const WEAPON_CONFIG = {
     iconPath: ASSET_PATHS.weapons.p90,
     modelPath: ASSET_PATHS.weaponModels.p90,
     tracerInterval: 2,
-    display: { offsetX: 1.02, offsetY: -0.68, scale: 0.95, rotationZ: 0.03, flipX: false, flipY: false },
+    // 像素准星：冲锋枪用 circle（圆圈，近距离快速瞄准）
+    crosshair: { image: ASSET_PATHS.crosshair.circle },
+    modelConfig: {
+      position: [0.58, -0.62, 1.18],
+      rotation: [-0.08, -0.2, 0.02],
+      scaling: 1.15,
+      // P90 紧凑 PDW，锚点前推贴近枪口，避免贴在枪身中间或热栏附近
+      muzzleLocalPosition: [-0.35, 0.24, 0.06],
+    },
+    // P90 枪火中等大小，配合紧凑枪身
+    muzzleFlash: { size: 0.3, alpha: 0.82, rotationRandom: Math.PI * 2 },
   },
 };
 
@@ -259,3 +300,44 @@ export function getRating({ victory, score, baseHealth }) {
   if (score >= 90) return "B";
   return "C";
 }
+
+// 武器试验场配置：无敌人/倒计时/基地血量，只保留地面+弹道墙+弹孔+数据看板
+export const WEAPON_LAB_CONFIG = {
+  wallDistance: 12,          // 弹道墙距玩家相机的 Z 距离（玩家在 z=12，墙在 z=0 附近）
+  wallWidth: 20,
+  wallHeight: 8,
+  groundSize: 40,
+  // 弹孔 Decal 参数
+  bulletHole: {
+    size: 0.18,              // Decal 三维尺寸（世界单位）
+    maxCount: 200,           // 滚动上限，超出清除最早的，防性能崩
+    zOffset: -2,             // 防 z-fighting，让弹孔贴在墙面上方
+  },
+  // 玩家初始位（与靶场一致，便于复用相机/碰撞）
+  playerStart: { x: 0, y: 2.25, z: 12 },
+  cameraTarget: { x: 0, y: 2.1, z: -24 },
+  // weaponLab 玩家活动边界：groundSize=40 地面从 -20 到 20，
+  // 弹道墙在 z=0 附近，玩家活动区限制在墙前 z∈[-2,18]，x 限制在 ±18 避免走出地面边缘。
+  playerBounds: { x: 18, zMin: -2, zMax: 18 },
+  // 死靶模式参数（阶段 3）
+  dummyMaxCount: 8,            // 死靶上限，超出滚动清除最早的
+  dummyRespawnSeconds: 3,      // 死靶被击死后原地重生时间
+  // 敌人模式参数（阶段 4）：按 B 启动 60s 生存挑战
+  enemyMode: {
+    duration: 60,           // 生存时长（秒）
+    maxTargets: 8,          // 同屏敌人上限
+    playerHP: 5,            // 玩家生命值
+    damagePerReach: 1,      // 每个抵达玩家的敌人扣血量
+    spawnZ: -18,            // 敌人生成 z 坐标（地面边缘，墙后方）
+    goalZ: 10,              // 敌人抵达此 z 视为到达玩家位置（玩家初始 z=12）
+    firstSpawnDelay: 0.5,   // 模式开始后首次刷怪延迟
+  },
+  // 动靶模式参数（阶段 5）：按 V 启动水平振荡靶，练跟枪
+  movingTarget: {
+    count: 3,           // 同屏动靶数量
+    zPosition: 6,       // 动靶固定 z（相机射线在此 z 命中 head hitbox）
+    xRange: 7,          // 水平振荡幅度（±xRange）
+    moveSpeed: 1.2,     // 振荡角速度（弧度/秒），周期 ≈ 2π/1.2 ≈ 5.2s
+    respawnDelay: 0.5,  // 击杀后重生延迟（秒）
+  },
+};

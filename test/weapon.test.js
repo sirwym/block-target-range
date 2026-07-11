@@ -31,18 +31,21 @@ test("weapon configs define the first four firearms", () => {
     assert.ok(weapon.bodyDamage >= 1);
     assert.ok(weapon.fireSound);
     assert.ok(weapon.tracerInterval >= 1, `${id} tracerInterval`);
-    const display = weapon.display;
-    assert.ok(typeof display.offsetX === "number", `${id} display.offsetX`);
-    assert.ok(typeof display.offsetY === "number", `${id} display.offsetY`);
-    assert.ok(typeof display.scale === "number" && display.scale > 0, `${id} display.scale`);
-    assert.ok(typeof display.rotationZ === "number", `${id} display.rotationZ`);
-    assert.equal(typeof display.flipX, "boolean", `${id} display.flipX`);
+    assert.equal(weapon.display, undefined, `${id} no 2D first-person display config`);
+    const modelConfig = weapon.modelConfig;
+    assert.ok(Array.isArray(modelConfig.position) && modelConfig.position.length === 3, `${id} model position`);
+    assert.ok(Array.isArray(modelConfig.rotation) && modelConfig.rotation.length === 3, `${id} model rotation`);
+    assert.ok(typeof modelConfig.scaling === "number" && modelConfig.scaling > 0, `${id} model scaling`);
+    assert.ok(
+      Array.isArray(modelConfig.muzzleLocalPosition) && modelConfig.muzzleLocalPosition.length === 3,
+      `${id} muzzleLocalPosition`
+    );
   }
   assert.ok(WEAPON_CONFIG.p90.modelPath, "p90 has modelPath");
   assert.equal(WEAPON_CONFIG.p90.slot, 5);
   assert.equal(WEAPON_CONFIG.p90.magazineSize, 50);
   assert.equal(WEAPON_CONFIG.p90.automatic, true);
-  assert.ok(WEAPON_CONFIG.p90.modelPath.endsWith("p90_static.gltf"));
+  assert.ok(WEAPON_CONFIG.p90.modelPath.endsWith("p90_model.json"));
 });
 
 test("weapon state spends ammo and blocks fire during cooldown", () => {

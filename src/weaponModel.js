@@ -1,107 +1,15 @@
 import * as BABYLON from "@babylonjs/core";
 import { ASSET_PATHS } from "./config.js";
-import { colorMaterial, materialFromTexture, loadPixelTexture } from "./assets.js";
+import { colorMaterial } from "./assets.js";
 
-const P90_BASE_POSITION = new BABYLON.Vector3(0.58, -0.62, 1.18);
-const P90_BASE_ROTATION = new BABYLON.Vector3(-0.08, -0.2, 0.02);
-
-export function createP90WeaponModel(scene, camera, onStatus = () => {}) {
-  const root = new BABYLON.TransformNode("p90-first-person-root", scene);
-  root.parent = camera;
-  root.position.copyFrom(P90_BASE_POSITION);
-  root.rotation.copyFrom(P90_BASE_ROTATION);
-  root.scaling.setAll(1.15);
-  root.setEnabled(false);
-
-  const controller = {
-    root,
-    ready: false,
-    failed: false,
-    source: "none",
-    partCount: 0,
-    status: "loading",
-  };
-
-  loadP90Model(scene, root, controller, onStatus);
-  return controller;
-}
-
-export function updateP90WeaponModel(controller, { active, recoil, reloading }) {
-  if (!controller?.ready) return false;
-  controller.root.setEnabled(active);
-  if (!active) return false;
-  const reloadDrop = reloading ? 0.16 : 0;
-  controller.root.position.set(
-    P90_BASE_POSITION.x + recoil * 0.07,
-    P90_BASE_POSITION.y - recoil * 0.05 - reloadDrop,
-    P90_BASE_POSITION.z
-  );
-  controller.root.rotation.set(
-    P90_BASE_ROTATION.x - recoil * 0.08 + (reloading ? 0.12 : 0),
-    P90_BASE_ROTATION.y,
-    P90_BASE_ROTATION.z - recoil * 0.1
-  );
-  return true;
-}
-
-async function loadP90Model(scene, root, controller, onStatus) {
-  try {
-    const partCount = await buildBlockbenchP90(scene, root);
-    controller.ready = true;
-    controller.source = "blockbench-json";
-    controller.partCount = partCount;
-    controller.status = `P90 JSON model loaded (${partCount} parts)`;
-    onStatus(controller.status);
-    return;
-  } catch (error) {
-    console.warn("[P90 3D] JSON unusable, falling back to glTF.", error);
-  }
-
-  try {
-    const partCount = await loadGltfP90(scene, root);
-    controller.ready = true;
-    controller.source = "gltf";
-    controller.partCount = partCount;
-    controller.status = `P90 glTF loaded (${partCount} parts)`;
-    onStatus(controller.status);
-  } catch (error) {
-    console.warn("[P90 3D] model fallback failed; using 2D weapon icon.", error);
-    controller.failed = true;
-    controller.status = "P90 3D failed, using 2D";
-    onStatus(controller.status);
-  }
-}
-
-async function loadGltfP90(scene, root) {
-  const { rootUrl, fileName } = splitAssetPath(ASSET_PATHS.weaponModels.p90);
-  const result = await BABYLON.SceneLoader.ImportMeshAsync("", rootUrl, fileName, scene);
-  const visibleMeshes = result.meshes.filter((mesh) => (
-    mesh.getTotalVertices?.() > 0 && !/camera/i.test(mesh.name)
-  ));
-  if (visibleMeshes.length === 0) {
-    result.meshes.forEach((mesh) => mesh.dispose());
-    throw new Error("P90 glTF has no visible gun mesh");
-  }
-  const importedRoot = result.meshes[0];
-  importedRoot.parent = root;
-  importedRoot.position.set(0, 0, 0);
-  importedRoot.rotation.set(0, 0, 0);
-  importedRoot.scaling.setAll(1);
-  // glTF 自带贴图（p90_1.png / bs_512.png）偏青，且与 Blockbench 路径视觉不一致。
-  // 这里统一把可见 mesh 的材质覆盖为深枪灰 colorMaterial，保证两条加载路径最终都呈黑灰金属色。
-  const gltfFallbackMaterial = colorMaterial(scene, P90_MATERIAL_COLORS.fallback, {
-    emissive: BABYLON.Color3.FromHexString("#060606"),
-  });
-  result.meshes.forEach((mesh) => {
-    mesh.isPickable = false;
-    mesh.renderingGroupId = 2;
-    mesh.alwaysSelectAsActiveMesh = true;
-    if (mesh.getTotalVertices?.() > 0 && !/camera/i.test(mesh.name)) {
-      mesh.material = gltfFallbackMaterial;
-    }
-  });
-  return visibleMeshes.length;
-}
+const FIRST_PERSON_WEAPON_COLORS = {
+  glock17: "#24272b",
+  m4: "#2c3036",
+  ak47: "#4a3a2c",
+  awp: "#30343a",
+  p90: "#232527",
+  fallback: "#2b2f34",
+};
 
 // P90 杪质色值刻意走中性深枪灰/黑灰金属色（R≈G≈B 略偏冷）。
 // 旧值 #3a3d42 / #2a2d33 蓝分量偏大，叠加 createSkyTexture 的蓝色天光后整体显青，
@@ -112,105 +20,19 @@ export const P90_MATERIAL_COLORS = {
   fallback: "#232527",
 };
 
-async function buildBlockbenchP90(scene, root) {
-  const response = await fetch(ASSET_PATHS.weaponModels.p90BlockModel);
-  if (!response.ok) throw new Error("P90 Blockbench model JSON missing");
-  const model = await response.json();
-  return buildBlockbenchFromModel(model, scene, root);
-}
-
-export function buildBlockbenchFromModel(model, scene, root) {
-  const materials = {
-    "#2": colorMaterial(scene, P90_MATERIAL_COLORS["#2"], { emissive: BABYLON.Color3.FromHexString("#050806") }),
-    "#3": colorMaterial(scene, P90_MATERIAL_COLORS["#3"], { emissive: BABYLON.Color3.FromHexString("#080909") }),
-    fallback: colorMaterial(scene, P90_MATERIAL_COLORS.fallback, { emissive: BABYLON.Color3.FromHexString("#060606") }),
-  };
-
-  const group = new BABYLON.TransformNode("p90-blockbench-model", scene);
-  group.parent = root;
-  group.position.set(0, -0.06, 0.08);
-  group.rotation.set(0, Math.PI, 0);
-  group.scaling.setAll(1.05);
-
-  model.elements.forEach((element, index) => {
-    const from = element.from;
-    const to = element.to;
-    const size = [
-      Math.max(0.006, (to[0] - from[0]) / 16),
-      Math.max(0.006, (to[1] - from[1]) / 16),
-      Math.max(0.006, (to[2] - from[2]) / 16),
-    ];
-    const mesh = BABYLON.MeshBuilder.CreateBox(`p90-part-${index}`, {
-      width: size[0],
-      height: size[1],
-      depth: size[2],
-    }, scene);
-    const rotation = element.rotation;
-    const angle = rotation?.angle ?? 0;
-    const hasRotation = Math.abs(angle) > 0.001;
-
-    if (hasRotation) {
-      const origin = rotation.origin;
-      const pivot = new BABYLON.TransformNode(`p90-part-${index}-pivot`, scene);
-      pivot.parent = group;
-      pivot.position.set(
-        (origin[0] - 8) / 16,
-        (origin[1] - 8) / 16,
-        (origin[2] - 8) / 16
-      );
-      const rad = BABYLON.Tools.ToRadians(angle);
-      if (rotation.axis === "x") pivot.rotation.x = rad;
-      else if (rotation.axis === "y") pivot.rotation.y = rad;
-      else if (rotation.axis === "z") pivot.rotation.z = rad;
-      mesh.parent = pivot;
-      mesh.position.set(
-        ((from[0] + to[0]) / 2 - origin[0]) / 16,
-        ((from[1] + to[1]) / 2 - origin[1]) / 16,
-        ((from[2] + to[2]) / 2 - origin[2]) / 16
-      );
-    } else {
-      mesh.parent = group;
-      mesh.position.set(
-        ((from[0] + to[0]) / 2 - 8) / 16,
-        ((from[1] + to[1]) / 2 - 8) / 16,
-        ((from[2] + to[2]) / 2 - 8) / 16
-      );
-    }
-
-    mesh.material = materials[getElementTextureKey(element)] ?? materials.fallback;
-    mesh.isPickable = false;
-    mesh.renderingGroupId = 2;
-    mesh.alwaysSelectAsActiveMesh = true;
-  });
-  return model.elements.length;
-}
-
-function getElementTextureKey(element) {
-  const face = Object.values(element.faces ?? {})[0];
-  return face?.texture ?? "fallback";
-}
-
-function splitAssetPath(path) {
-  const slash = path.lastIndexOf("/");
-  return {
-    rootUrl: path.slice(0, slash + 1),
-    fileName: path.slice(slash + 1),
-  };
-}
-
-// ===== 通用 3D 武器模型加载器（标准还原版） =====
-// 与上方 P90 专用函数并存，等阶段 3/4 再统一清理。
+// ===== 通用 3D 武器模型加载器 =====
+// 5 把武器统一走 createWeaponModel，P90 保留多色材质（按 texture key 选 P90_MATERIAL_COLORS）。
 
 export function createWeaponModel(scene, camera, weaponId, modelConfig, textureMap, onStatus = () => {}) {
   const root = new BABYLON.TransformNode(`${weaponId}-first-person-root`, scene);
   root.parent = camera;
-  root.position.set(modelConfig.position[0], modelConfig.position[1], modelConfig.position[2]);
-  root.rotation.set(modelConfig.rotation[0], modelConfig.rotation[1], modelConfig.rotation[2]);
-  root.scaling.setAll(modelConfig.scaling);
+  applyModelConfig(root, modelConfig);
   root.setEnabled(false);
+  const muzzleAnchor = createMuzzleAnchor(scene, root, weaponId, modelConfig);
 
   const controller = {
     root,
+    muzzleAnchor,
     ready: false,
     failed: false,
     weaponId,
@@ -227,20 +49,48 @@ export function updateWeaponModel(controller, { active, recoil, reloading, model
   if (!controller?.ready) return false;
   controller.root.setEnabled(active);
   if (!active) return false;
+  updateRootTransform(controller.root, { recoil, reloading, modelConfig });
+  updateMuzzleAnchor(controller, modelConfig);
+  return true;
+}
+
+function applyModelConfig(root, modelConfig) {
+  root.position.set(modelConfig.position[0], modelConfig.position[1], modelConfig.position[2]);
+  root.rotation.set(modelConfig.rotation[0], modelConfig.rotation[1], modelConfig.rotation[2]);
+  root.scaling.setAll(modelConfig.scaling);
+}
+
+function updateRootTransform(root, { recoil, reloading, modelConfig }) {
   const base = modelConfig.position;
   const baseRot = modelConfig.rotation;
   const reloadDrop = reloading ? 0.16 : 0;
-  controller.root.position.set(
+  root.position.set(
     base[0] + recoil * 0.07,
     base[1] - recoil * 0.05 - reloadDrop,
     base[2]
   );
-  controller.root.rotation.set(
+  root.rotation.set(
     baseRot[0] - recoil * 0.08 + (reloading ? 0.12 : 0),
     baseRot[1],
     baseRot[2] - recoil * 0.1
   );
-  return true;
+}
+
+function createMuzzleAnchor(scene, root, weaponId, modelConfig) {
+  const anchor = new BABYLON.TransformNode(`${weaponId}-muzzle-anchor`, scene);
+  anchor.parent = root;
+  setMuzzleAnchorPosition(anchor, modelConfig);
+  return anchor;
+}
+
+function updateMuzzleAnchor(controller, modelConfig) {
+  controller.modelConfig = modelConfig;
+  setMuzzleAnchorPosition(controller.muzzleAnchor, modelConfig);
+}
+
+function setMuzzleAnchorPosition(anchor, modelConfig) {
+  const position = modelConfig.muzzleLocalPosition;
+  anchor.position.set(position[0], position[1], position[2]);
 }
 
 async function loadWeaponModel(scene, root, controller, weaponId, textureMap, onStatus) {
@@ -251,20 +101,7 @@ async function loadWeaponModel(scene, root, controller, weaponId, textureMap, on
     if (!response.ok) throw new Error(`Model JSON missing for ${weaponId}`);
     const model = await response.json();
 
-    // 按纹理键创建材质：每个纹理键对应一张贴图，用 materialFromTexture 创建 StandardMaterial
-    const materials = {};
-    for (const [key, path] of Object.entries(textureMap)) {
-      const texture = loadPixelTexture(scene, path);
-      materials[key] = materialFromTexture(scene, texture, {
-        name: `${weaponId}-material-${key}`,
-        transparent: true,
-        useAlpha: true,
-      });
-    }
-    const firstKey = Object.keys(textureMap)[0];
-    materials.fallback = materials[firstKey];
-
-    const partCount = buildBlockbenchMesh(model, scene, root, weaponId, materials);
+    const partCount = buildFirstPersonBlockbenchMesh(model, scene, root, weaponId);
     controller.ready = true;
     controller.partCount = partCount;
     controller.status = `${weaponId} model loaded (${partCount} parts)`;
@@ -272,9 +109,110 @@ async function loadWeaponModel(scene, root, controller, weaponId, textureMap, on
   } catch (error) {
     console.warn(`[${weaponId} 3D] model load failed:`, error);
     controller.failed = true;
-    controller.status = `${weaponId} 3D failed, using 2D`;
+    controller.status = `${weaponId} 3D failed`;
     onStatus(controller.status);
   }
+}
+
+export function buildFirstPersonBlockbenchMesh(model, scene, parent, weaponId) {
+  const materials = buildMaterialsForWeapon(scene, weaponId);
+
+  const group = new BABYLON.TransformNode(`${weaponId}-first-person-solid-model`, scene);
+  group.parent = parent;
+  group.position.set(0, -0.06, 0.08);
+  group.rotation.set(0, Math.PI, 0);
+  group.scaling.setAll(1.05);
+
+  model.elements.forEach((element, index) => {
+    const mesh = buildSolidElementMesh(element, scene, group, weaponId, index);
+    if (!mesh) return;
+    mesh.material = selectMaterialForElement(element, materials, weaponId);
+    mesh.isPickable = false;
+    mesh.renderingGroupId = 2;
+    mesh.alwaysSelectAsActiveMesh = true;
+  });
+  return model.elements.length;
+}
+
+// 按武器构建材质映射：P90 多色（#2/#3/fallback），其他武器单色 + accent 双色
+function buildMaterialsForWeapon(scene, weaponId) {
+  if (weaponId === "p90") {
+    return {
+      "#2": colorMaterial(scene, P90_MATERIAL_COLORS["#2"], { emissive: BABYLON.Color3.FromHexString("#050806") }),
+      "#3": colorMaterial(scene, P90_MATERIAL_COLORS["#3"], { emissive: BABYLON.Color3.FromHexString("#080909") }),
+      fallback: colorMaterial(scene, P90_MATERIAL_COLORS.fallback, { emissive: BABYLON.Color3.FromHexString("#060606") }),
+    };
+  }
+  const baseColor = FIRST_PERSON_WEAPON_COLORS[weaponId] ?? FIRST_PERSON_WEAPON_COLORS.fallback;
+  return {
+    base: colorMaterial(scene, baseColor, { emissive: BABYLON.Color3.FromHexString("#070808") }),
+    accent: colorMaterial(scene, "#151719", { emissive: BABYLON.Color3.FromHexString("#030303") }),
+  };
+}
+
+// P90 按 element texture key 选多色材质；其他武器按尺寸选 base/accent
+function selectMaterialForElement(element, materials, weaponId) {
+  if (weaponId === "p90") {
+    return materials[getElementTextureKey(element)] ?? materials.fallback;
+  }
+  return shouldUseAccentMaterial(element) ? materials.accent : materials.base;
+}
+
+function getElementTextureKey(element) {
+  const face = Object.values(element.faces ?? {})[0];
+  return face?.texture ?? "fallback";
+}
+
+function buildSolidElementMesh(element, scene, parent, weaponId, index) {
+  const from = element.from;
+  const to = element.to;
+  const width = Math.max(0.006, (to[0] - from[0]) / 16);
+  const height = Math.max(0.006, (to[1] - from[1]) / 16);
+  const depth = Math.max(0.006, (to[2] - from[2]) / 16);
+  const mesh = BABYLON.MeshBuilder.CreateBox(`${weaponId}-solid-part-${index}`, { width, height, depth }, scene);
+
+  const cx = (from[0] + to[0]) / 2;
+  const cy = (from[1] + to[1]) / 2;
+  const cz = (from[2] + to[2]) / 2;
+  const rotation = element.rotation;
+  const angle = rotation?.angle ?? 0;
+  const hasRotation = Math.abs(angle) > 0.001;
+
+  if (hasRotation) {
+    const origin = rotation.origin;
+    const pivot = new BABYLON.TransformNode(`${weaponId}-solid-part-${index}-pivot`, scene);
+    pivot.parent = parent;
+    pivot.position.set(
+      (origin[0] - 8) / 16,
+      (origin[1] - 8) / 16,
+      (origin[2] - 8) / 16
+    );
+    const rad = BABYLON.Tools.ToRadians(angle);
+    if (rotation.axis === "x") pivot.rotation.x = rad;
+    else if (rotation.axis === "y") pivot.rotation.y = rad;
+    else if (rotation.axis === "z") pivot.rotation.z = rad;
+    mesh.parent = pivot;
+    mesh.position.set(
+      (cx - origin[0]) / 16,
+      (cy - origin[1]) / 16,
+      (cz - origin[2]) / 16
+    );
+  } else {
+    mesh.parent = parent;
+    mesh.position.set(
+      (cx - 8) / 16,
+      (cy - 8) / 16,
+      (cz - 8) / 16
+    );
+  }
+  return mesh;
+}
+
+function shouldUseAccentMaterial(element) {
+  const width = Math.abs(element.to[0] - element.from[0]);
+  const height = Math.abs(element.to[1] - element.from[1]);
+  const depth = Math.abs(element.to[2] - element.from[2]);
+  return Math.min(width, height, depth) <= 0.35;
 }
 
 export function buildBlockbenchMesh(model, scene, parent, weaponId, materials) {

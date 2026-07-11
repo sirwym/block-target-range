@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import * as BABYLON from "@babylonjs/core";
-import { buildBlockbenchFromModel, buildBlockbenchMesh, P90_MATERIAL_COLORS } from "../src/weaponModel.js";
+import { buildFirstPersonBlockbenchMesh, buildBlockbenchMesh, P90_MATERIAL_COLORS } from "../src/weaponModel.js";
 
 const MODEL_PATH = path.resolve("public/assets/tac/models/p90/p90_model.json");
 const GLOCK17_MODEL_PATH = path.resolve("public/assets/tac/models/glock17/glock17.json");
@@ -34,10 +34,10 @@ test("P90 Blockbench conversion creates pivot nodes for rotated elements", () =>
   const scene = new BABYLON.Scene(engine);
   const root = new BABYLON.TransformNode("root", scene);
 
-  const partCount = buildBlockbenchFromModel(model, scene, root);
+  const partCount = buildFirstPersonBlockbenchMesh(model, scene, root, "p90");
   assert.equal(partCount, model.elements.length, "returns element count");
 
-  const group = scene.getNodeByName("p90-blockbench-model");
+  const group = scene.getNodeByName("p90-first-person-solid-model");
   assert.ok(group, "model group exists");
 
   const rotatedElements = model.elements
@@ -45,7 +45,7 @@ test("P90 Blockbench conversion creates pivot nodes for rotated elements", () =>
     .filter((e) => Math.abs(e.element.rotation?.angle ?? 0) > 0.001);
 
   for (const { element, index } of rotatedElements) {
-    const pivot = scene.getNodeByName(`p90-part-${index}-pivot`);
+    const pivot = scene.getNodeByName(`p90-solid-part-${index}-pivot`);
     assert.ok(pivot, `pivot for rotated part ${index}`);
     assert.equal(pivot.parent, group, `pivot ${index} parent is group`);
     const angle = element.rotation.angle;
@@ -56,7 +56,7 @@ test("P90 Blockbench conversion creates pivot nodes for rotated elements", () =>
       `pivot ${index} ${axis} rotation matches angle ${angle}`
     );
 
-    const mesh = scene.getMeshByName(`p90-part-${index}`);
+    const mesh = scene.getMeshByName(`p90-solid-part-${index}`);
     assert.equal(mesh.parent, pivot, `rotated mesh ${index} parent is pivot`);
     const origin = element.rotation.origin;
     const expectedMeshX = ((element.from[0] + element.to[0]) / 2 - origin[0]) / 16;
@@ -74,8 +74,8 @@ test("P90 Blockbench model bounding box stays compact", () => {
   const root = new BABYLON.TransformNode("root", scene);
   root.computeWorldMatrix(true);
 
-  buildBlockbenchFromModel(model, scene, root);
-  const group = scene.getNodeByName("p90-blockbench-model");
+  buildFirstPersonBlockbenchMesh(model, scene, root, "p90");
+  const group = scene.getNodeByName("p90-first-person-solid-model");
   const meshes = group.getChildMeshes(false, (n) => n instanceof BABYLON.Mesh);
 
   const min = new BABYLON.Vector3(Infinity, Infinity, Infinity);
@@ -122,15 +122,15 @@ test("P90 material colors are gun-metal, not cyan", () => {
 });
 
 test("P90 Blockbench meshes use P90_MATERIAL_COLORS palette", () => {
-  // 确保 Blockbench 路径所有 mesh 材质色属于 P90_MATERIAL_COLORS 三色之一，
+  // 确保第一人称实体模型路径所有 mesh 材质色属于 P90_MATERIAL_COLORS 三色之一，
   // 防止未来误改材质映射导致部分 mesh 回退到 fallback 或用到非深枪灰色。
   const model = loadModel();
   const engine = new BABYLON.NullEngine();
   const scene = new BABYLON.Scene(engine);
   const root = new BABYLON.TransformNode("root", scene);
-  buildBlockbenchFromModel(model, scene, root);
+  buildFirstPersonBlockbenchMesh(model, scene, root, "p90");
 
-  const group = scene.getNodeByName("p90-blockbench-model");
+  const group = scene.getNodeByName("p90-first-person-solid-model");
   const meshes = group.getChildMeshes(false, (n) => n instanceof BABYLON.Mesh);
   const allowedHex = new Set(Object.values(P90_MATERIAL_COLORS));
   for (const mesh of meshes) {

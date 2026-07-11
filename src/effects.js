@@ -110,6 +110,52 @@ export function addBlockChips(scene, effects, position, sourceMesh) {
   }
 }
 
+// 弹孔贴图懒加载缓存：无现成弹孔 PNG 资源，用 DynamicTexture 程序生成黑色焦痕+裂纹
+let bulletHoleTexture = null;
+
+// 在命中点贴一个弹孔 Decal。
+// targetMesh 是被命中的墙，pickedPoint 是世界坐标命中点，normal 是表面法线（来自 pickResult.getNormal(true)）。
+// 用 zOffset=-2 防 z-fighting，renderingGroupId=2 让弹孔在墙之上渲染。
+export function createBulletHoleDecal(scene, targetMesh, pickedPoint, normal, config) {
+  if (!bulletHoleTexture) bulletHoleTexture = createBulletHoleTexture(scene);
+  const decal = BABYLON.MeshBuilder.CreateDecal("bullet-hole", targetMesh, {
+    position: pickedPoint,
+    normal: normal ?? BABYLON.Vector3.Forward(),
+    size: new BABYLON.Vector3(config.size, config.size, config.size),
+    angle: Math.random() * Math.PI * 2,
+  });
+  const material = new BABYLON.StandardMaterial("bullet-hole-mat", scene);
+  material.diffuseTexture = bulletHoleTexture;
+  material.useAlphaFromDiffuseTexture = true;
+  material.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+  material.specularColor = BABYLON.Color3.Black();
+  material.zOffset = config.zOffset;
+  decal.material = material;
+  decal.isPickable = false;
+  decal.renderingGroupId = 2;
+  return decal;
+}
+
+// 程序生成 64×64 弹孔贴图：外圈焦痕 + 内圈深孔 + 放射裂纹，hasAlpha 让边缘自然过渡
+function createBulletHoleTexture(scene) {
+  const tex = new BABYLON.DynamicTexture("bullet-hole-tex", { width: 64, height: 64 }, scene, false);
+  const ctx = tex.getContext();
+  ctx.clearRect(0, 0, 64, 64);
+  ctx.fillStyle = "rgba(20,20,20,0.95)";
+  ctx.beginPath(); ctx.arc(32, 32, 22, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(8,8,8,1)";
+  ctx.beginPath(); ctx.arc(32, 32, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "rgba(15,15,15,0.7)"; ctx.lineWidth = 1.5;
+  for (let i = 0; i < 5; i += 1) {
+    const a = (i / 5) * Math.PI * 2;
+    ctx.beginPath(); ctx.moveTo(32, 32);
+    ctx.lineTo(32 + Math.cos(a) * 28, 32 + Math.sin(a) * 28); ctx.stroke();
+  }
+  tex.hasAlpha = true;
+  tex.update();
+  return tex;
+}
+
 export function createBreakParticles(scene, effects, position, kind) {
   const color = kind === "creeper" ? "#65d85d" : "#5176b7";
   for (let i = 0; i < 18; i += 1) {

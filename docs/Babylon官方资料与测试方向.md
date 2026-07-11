@@ -122,6 +122,34 @@
 
 当前 `src/ui.js` 已经手写 GUI，短期不建议整体改成 GUI Editor JSON。GUI Editor 更适合做新面板原型，或在界面复杂后再局部导入。
 
+### Decal 贴花
+
+官方 API：`BABYLON.MeshBuilder.CreateDecal(name, sourceMesh, { position, normal, size, angle })`。
+
+适合本项目的方向：
+
+- 武器试验场弹孔记录。
+- 墙面命中标记。
+- 连续射击的后坐力轨迹可视化。
+
+已落地实现（`src/effects.js` `createBulletHoleDecal`）：
+
+- `position`：射线命中点世界坐标。
+- `normal`：`pickResult.getNormal(true)`，贴花贴合墙面法线。
+- `size`：`new BABYLON.Vector3(0.18, 0.18, 0.18)`，世界单位。
+- `angle`：每次随机旋转，避免弹孔看起来一样。
+- `material.zOffset = -2`：防 z-fighting，让弹孔贴在墙面之上。
+- `renderingGroupId = 2`：弹孔在墙之上渲染。
+- 弹孔贴图用 `DynamicTexture` 程序生成（64×64 黑色焦痕 + 放射裂纹），无外部 PNG 资源依赖。
+- 累积上限 200 个，超出滚动清除最早的，防性能崩。
+
+注意事项：
+
+- Decal 的 sourceMesh 必须有足够面数；`makeBlock`（CreateBox）的平面墙贴合无问题。
+- 若 Decal 穿透或错位，优先调小 `bulletHole.size` 或检查 `normal` 方向。
+- `useAlphaFromDiffuseTexture = true` 让弹孔边缘自然过渡。
+- 大量 Decal 可能影响性能；若卡顿可降上限到 100 或改用 `thinInstance` 合并。
+
 ## 以后可能需要
 
 ### Node Geometry Editor

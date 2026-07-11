@@ -1,5 +1,5 @@
 import * as BABYLON from "@babylonjs/core";
-import { ASSET_PATHS, ASSET_ROOT, WEAPON_CONFIG, WEAPON_ORDER } from "./config.js";
+import { ASSET_PATHS, ASSET_ROOT } from "./config.js";
 
 export function loadPixelTexture(scene, path) {
   const texture = new BABYLON.Texture(path, scene, false, false, BABYLON.Texture.NEAREST_SAMPLINGMODE);
@@ -37,9 +37,6 @@ export function loadTextures(scene) {
     experienceBottle: loadPixelTexture(scene, `${ASSET_ROOT}/item/experience_bottle.png`),
     muzzleFlash: loadPixelTexture(scene, ASSET_PATHS.tacMuzzleFlash),
     hitMarker: loadPixelTexture(scene, ASSET_PATHS.tacHitMarker),
-    weapons: Object.fromEntries(
-      WEAPON_ORDER.map((id) => [id, loadPixelTexture(scene, WEAPON_CONFIG[id].iconPath)])
-    ),
   };
 }
 

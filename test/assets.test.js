@@ -35,16 +35,11 @@ test("Babylon runtime dependencies are declared", () => {
 });
 
 test("P90 3D source assets are structurally usable", () => {
-  const gltf = JSON.parse(readFileSync(join(root, "public", ASSET_PATHS.weaponModels.p90), "utf8"));
-  assert.ok(gltf.scenes?.length >= 1);
-  assert.ok(gltf.nodes?.length >= 1);
-  assert.ok(gltf.meshes?.length >= 1);
-  assert.ok(gltf.materials?.length >= 1);
-
-  const blockModel = JSON.parse(readFileSync(join(root, "public", ASSET_PATHS.weaponModels.p90BlockModel), "utf8"));
-  assert.ok(blockModel.elements.length > 20);
-  assert.deepEqual(blockModel.texture_size, [128, 128]);
-  assert.equal(blockModel.textures["2"], "tac:items/p90/p90_1");
+  const model = JSON.parse(readFileSync(join(root, "public", ASSET_PATHS.weaponModels.p90), "utf8"));
+  assert.ok(Array.isArray(model.elements), "elements array");
+  assert.ok(model.elements.length > 20, `part count ${model.elements.length}`);
+  assert.deepEqual(model.texture_size, [128, 128]);
+  assert.equal(model.textures["2"], "tac:items/p90/p90_1");
 });
 
 test("block material spec keeps top side and bottom textures distinct", () => {
@@ -80,24 +75,20 @@ test("materialFromTexture disables backFaceCulling so flipped planes stay visibl
   engine.dispose();
 });
 
-test("weapon display configs are calibrated so muzzle points toward screen center", () => {
-  // 2D 武器图标用 TaC 背包图标，不是第一人称 sprite，必须以浏览器实际渲染为准。
-  // 用户提供的 debugWeapon2D 验收截图证明 flipHV 会把枪口压向热栏；glock17/m4/ak47/awp 采用 flipH 作为基准。
-  // 改动任一值需重新打开 ?debugWeapon2D=1 和正式战斗页验收，避免误回退到枪口朝玩家或上下倒置。
-  const expected = {
-    glock17: { flipX: true, flipY: false, rotationZ: -0.32, offsetX: 1.05, offsetY: -0.66, scale: 1.0 },
-    m4: { flipX: true, flipY: false, rotationZ: -0.32, offsetX: 1.08, offsetY: -0.62, scale: 1.05 },
-    ak47: { flipX: true, flipY: false, rotationZ: -0.32, offsetX: 1.06, offsetY: -0.64, scale: 1.05 },
-    awp: { flipX: true, flipY: false, rotationZ: -0.32, offsetX: 1.1, offsetY: -0.58, scale: 1.15 },
-    p90: { flipX: false, flipY: false, rotationZ: 0.03, offsetX: 1.02, offsetY: -0.68, scale: 0.95 },
-  };
+test("weapon first-person configs are 3D-only with muzzle anchors", () => {
   for (const id of WEAPON_ORDER) {
-    const display = WEAPON_CONFIG[id].display;
-    assert.equal(typeof display.flipX, "boolean", `${id} display.flipX is boolean`);
-    assert.equal(typeof display.flipY, "boolean", `${id} display.flipY is boolean`);
-    for (const [field, value] of Object.entries(expected[id])) {
-      assert.equal(display[field], value, `${id} display.${field} matches calibrated snapshot`);
-    }
+    const weapon = WEAPON_CONFIG[id];
+    assert.equal(weapon.display, undefined, `${id} has no 2D first-person display config`);
+    const modelConfig = weapon.modelConfig;
+    assert.ok(modelConfig, `${id} has modelConfig`);
+    assert.ok(Array.isArray(modelConfig.position) && modelConfig.position.length === 3, `${id} position`);
+    assert.ok(Array.isArray(modelConfig.rotation) && modelConfig.rotation.length === 3, `${id} rotation`);
+    assert.ok(typeof modelConfig.scaling === "number" && modelConfig.scaling > 0, `${id} scaling`);
+    assert.ok(
+      Array.isArray(modelConfig.muzzleLocalPosition) && modelConfig.muzzleLocalPosition.length === 3,
+      `${id} muzzleLocalPosition`
+    );
+    assert.equal(modelConfig.muzzleOffset, undefined, `${id} no camera-space muzzleOffset`);
   }
 });
 

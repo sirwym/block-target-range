@@ -1,6 +1,6 @@
 import * as BABYLON from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import { ASSET_PATHS, GAME_CONFIG, WEAPON_CONFIG, WEAPON_ORDER, getRating, getWaveProfile } from "./config.js";
+import { ASSET_PATHS, GAME_CONFIG, WEAPON_CONFIG, WEAPON_ORDER, WEAPON_LAB_CONFIG, getRating, getWaveProfile } from "./config.js";
 import {
   CREEPER_SKIN_UV,
   ZOMBIE_SKIN_UV,
@@ -24,7 +24,7 @@ import {
   startReload,
   updateWeaponState,
 } from "./weapon.js";
-import { createP90WeaponModel, updateP90WeaponModel, createWeaponModel, updateWeaponModel } from "./weaponModel.js";
+import { createWeaponModel, updateWeaponModel } from "./weaponModel.js";
 import { buildLighting, createWorld, updateCrystal } from "./world.js";
 import {
   addBlockChips,
@@ -36,7 +36,8 @@ import {
   spawnProjectileTrail,
   updateTemporaryMeshes,
 } from "./effects.js";
-import { clearCrosshair, createGameUi, hideResult, setCrosshair, showCombo, showResult, showStart, updateHud } from "./ui.js";
+import { clearCrosshair, createGameUi, hideArenaHud, hideResult, setCrosshair, setCrosshairForWeapon, showCombo, showResult, showStart, updateHitMarker, updateHud } from "./ui.js";
+import { createWeaponLab } from "./weaponLab.js";
 
 const canvas = document.querySelector("#game");
 const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true });
@@ -50,6 +51,8 @@ scene.collisionsEnabled = true;
 
 const camera = new BABYLON.UniversalCamera("player-camera", new BABYLON.Vector3(0, 2.25, 12), scene);
 camera.fov = BABYLON.Tools.ToRadians(72);
+const DEFAULT_FOV = camera.fov; // AWP 开镜/关镜时 lerp 回这个值
+const DEFAULT_ANGULAR_SENSIBILITY = camera.angularSensibility; // 开镜降低灵敏度时 lerp 回这个值
 camera.minZ = 0.1;
 camera.maxZ = 180;
 camera.speed = 0;
@@ -61,19 +64,34 @@ camera.keysDown = [];
 camera.keysLeft = [];
 camera.keysRight = [];
 camera.attachControl(canvas, true);
+// 移除右键(button 2)从相机拖拽按钮列表，避免右键被 Babylon 当作相机拖拽
+// 右键专用于 AWP 开镜切换，不能让相机输入抢占
+const pointersInput = camera.inputs.attached.pointers;
+if (pointersInput) {
+  pointersInput.buttons = [0];
+}
 camera.setTarget(new BABYLON.Vector3(0, 2.1, -24));
 
+// query 解析提前到 world 创建之前，weaponLabMode 决定是否建靶场环境
+const query = new URLSearchParams(window.location.search);
+const weaponLabMode = query.get("mode") === "weaponLab";
+const debugHitbox = query.has("debugHitbox");
+const debugActor = query.has("debugActor");
+const debugWeapon = query.has("debugWeapon");
+const e2eMode = query.has("e2e");
 const textures = loadTextures(scene);
 buildLighting(scene);
 const sky = BABYLON.MeshBuilder.CreateSphere("sky-dome", { diameter: 170, segments: 16 }, scene);
 sky.material = materialFromTexture(scene, createSkyTexture(scene));
 sky.material.backFaceCulling = false;
 sky.isPickable = false;
-const world = createWorld(scene, textures);
+// weaponLab 不建靶场环境（地面/围墙/基地水晶），只建空数组供 weaponLab 注册碰撞
+const world = weaponLabMode ? { solidColliders: [], solidMeshes: [], baseCrystal: null } : createWorld(scene, textures);
 
 const ui = createGameUi(scene, {
   onStart: startGame,
   onRestart: restartGame,
+  weaponLabMode,
 });
 
 const keys = new Set();
@@ -82,17 +100,13 @@ const previewMobs = [];
 const projectiles = [];
 const effects = [];
 const debugMeshes = [];
-const query = new URLSearchParams(window.location.search);
-const debugHitbox = query.has("debugHitbox");
-const debugActor = query.has("debugActor");
-const debugWeapon = query.has("debugWeapon");
-const debugWeapon2D = query.has("debugWeapon2D");
+const muzzleFlashDuration = e2eMode ? 2 : 0.055;
 
-let weaponPlane;
 let muzzleFlashPlane;
-let p90Model;
 const weaponModels = {}; // 通用 3D 武器模型控制器，按 weaponId 索引
 let debugWeaponLabel;
+let weaponLab;             // weaponLab 模式下的试验场控制器
+let wasReloading = false;  // 检测换弹边沿（true→false 时 commit magazine 统计）
 let lastTime = performance.now();
 
 const state = {
@@ -119,40 +133,120 @@ const state = {
   comboPopTimer: 0,
   lastLane: 1,
   shotCount: 0,
+  ads: false, // AWP 开镜状态：true=开镜（FOV 缩小+瞄准镜蒙版）
 };
 
 buildWeaponOverlay();
-resetGame({ preview: true });
+if (weaponLabMode) {
+  // weaponLab 模式：不走 resetGame（含刷怪/基地血量/倒计时），直接建试验场
+  state.mode = "weaponLab";
+  weaponLab = createWeaponLab(scene, textures, camera);
+  // 隐藏靶场专属 HUD（Score/Time/基地血量/经验条/tip），保留准星+热栏
+  hideArenaHud(ui);
+  showStart(ui, false);
+  // 设置当前武器的准星贴图
+  setCrosshairForWeapon(ui, state.weapons.currentWeaponId);
+} else {
+  resetGame({ preview: true });
+}
+installE2eDebugHooks();
 
 document.addEventListener("keydown", (event) => {
   keys.add(event.code);
   if (event.code === "Space") {
     event.preventDefault();
-    if (!event.repeat && (state.mode === "playing" || state.mode === "countdown")) state.jumpRequested = true;
+    if (!event.repeat && (state.mode === "playing" || state.mode === "countdown" || state.mode === "weaponLab")) state.jumpRequested = true;
   }
-  if ((state.mode === "playing" || state.mode === "countdown") && event.code === "KeyR") {
+  if ((state.mode === "playing" || state.mode === "countdown" || state.mode === "weaponLab") && event.code === "KeyR") {
     event.preventDefault();
     reloadCurrentWeapon();
   }
-  if ((state.mode === "playing" || state.mode === "countdown") && /^Digit[1-5]$/.test(event.code)) {
+  if ((state.mode === "playing" || state.mode === "countdown" || state.mode === "weaponLab") && /^Digit[1-5]$/.test(event.code)) {
     selectWeaponSlot(Number(event.code.slice(-1)) - 1);
+  }
+  // weaponLab 专属：T 键清除弹孔
+  if (state.mode === "weaponLab" && event.code === "KeyT") {
+    event.preventDefault();
+    weaponLab?.clearBulletHoles();
+  }
+  // weaponLab 专属：G 键在准星命中点（仅地面）放置死靶（敌人/动靶模式下禁用）
+  if (state.mode === "weaponLab" && event.code === "KeyG") {
+    event.preventDefault();
+    if (weaponLab?.mode === "enemy" || weaponLab?.mode === "moving") return;
+    const hit = pickCenter();
+    if (hit?.hit && hit.pickedMesh === weaponLab?.ground) {
+      weaponLab.spawnDummy(hit.pickedPoint.clone());
+    }
+  }
+  // weaponLab 专属：H 键清除所有死靶+敌人+动靶，回到 idle
+  if (state.mode === "weaponLab" && event.code === "KeyH") {
+    event.preventDefault();
+    weaponLab?.clearDummies();
+    weaponLab?.clearEnemies();
+    weaponLab?.clearMovingTargets();
+    if (weaponLab) weaponLab.mode = "idle";
+  }
+  // weaponLab 专属：B 键启动/重启敌人模式（60s 生存）
+  if (state.mode === "weaponLab" && event.code === "KeyB") {
+    event.preventDefault();
+    weaponLab?.startEnemyMode();
+  }
+  // weaponLab 专属：V 键启动/重启动靶模式（水平振荡靶）
+  if (state.mode === "weaponLab" && event.code === "KeyV") {
+    event.preventDefault();
+    weaponLab?.startMovingMode();
+  }
+  // weaponLab 专属：Tab 键临时锁定相机（按下锁定，松开恢复），方便观察弹孔分布
+  if (state.mode === "weaponLab" && event.code === "Tab") {
+    event.preventDefault();
+    if (weaponLab) weaponLab.cameraLocked = true;
   }
 });
 document.addEventListener("keyup", (event) => {
   keys.delete(event.code);
-});
-document.addEventListener("pointerlockchange", () => {
-  if (!isPointerLocked() && (state.mode === "playing" || state.mode === "countdown")) {
-    state.weapons = setTriggerHeld(state.weapons, false);
-    showStart(ui, true);
+  // Tab 松开时解锁相机
+  if (state.mode === "weaponLab" && event.code === "Tab" && weaponLab) {
+    weaponLab.cameraLocked = false;
   }
 });
-canvas.addEventListener("pointerdown", () => {
+document.addEventListener("pointerlockchange", () => {
+  if (isPointerLocked()) return;
+  state.weapons = setTriggerHeld(state.weapons, false);
+  // 指针锁定退出时关闭 AWP 开镜，避免状态残留
+  if (state.ads) {
+    state.ads = false;
+    camera.fov = DEFAULT_FOV;
+    camera.angularSensibility = DEFAULT_ANGULAR_SENSIBILITY;
+    if (ui.scopeOverlay) ui.scopeOverlay.isVisible = false;
+    if (ui.crosshairImage) ui.crosshairImage.isVisible = true;
+  }
+  // 靶场模式退出锁定后显示开始面板；weaponLab 模式不弹面板，点击 canvas 重新锁定
+  if (state.mode === "playing" || state.mode === "countdown") showStart(ui, true);
+});
+canvas.addEventListener("pointerdown", (event) => {
+  // 右键切换 AWP 开镜（仅 weaponLab 模式 + 当前武器是 AWP 时）
+  if (event.button === 2 && state.mode === "weaponLab") {
+    event.preventDefault(); // 阻止浏览器右键默认行为干扰
+    const weapon = getCurrentWeapon(state.weapons, WEAPON_CONFIG);
+    if (weapon.id === "awp" && weapon.ads) {
+      state.ads = !state.ads;
+    }
+    return;
+  }
+  if (state.mode === "weaponLab") {
+    // weaponLab：第一次点击同时请求锁定+开火，后续点击直接开火
+    if (!isPointerLocked()) lockPointer();
+    state.weapons = setTriggerHeld(state.weapons, true);
+    shoot();
+    return;
+  }
   if ((state.mode === "playing" || state.mode === "countdown") && isPointerLocked()) {
     state.weapons = setTriggerHeld(state.weapons, true);
     shoot();
   }
 });
+// 阻止右键菜单弹出（AWP 开镜需要右键）
+canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 window.addEventListener("pointerup", () => {
   state.weapons = setTriggerHeld(state.weapons, false);
 });
@@ -167,12 +261,13 @@ engine.runRenderLoop(() => {
   if (state.mode === "preview") updatePreview(delta, elapsed);
   if (state.mode === "debugActor") updateDebugActors(elapsed);
   if (state.mode === "debugWeapon") updateDebugWeapon(delta, elapsed);
-  if (state.mode === "debugWeapon2D") updateDebugWeapon2D(delta, elapsed);
   if (state.mode === "countdown") updateCountdown(delta, elapsed);
   if (state.mode === "playing") updateGame(delta, elapsed);
   updateTemporaryMeshes(projectiles, effects, camera, scene, delta);
   updateCrystal(world.baseCrystal, delta, elapsed);
   updateWeapon(delta);
+  // weaponLab 分支放在 updateWeapon 之后，换弹检测能用本帧更新后的 state.weapons
+  if (state.mode === "weaponLab") updateWeaponLab(delta, elapsed);
   scene.render();
 });
 
@@ -191,39 +286,283 @@ function restartGame() {
   startGame();
 }
 
-function buildWeaponOverlay() {
-  const initialDisplay = WEAPON_CONFIG.glock17.display;
-  weaponPlane = BABYLON.MeshBuilder.CreatePlane("weapon-overlay", { width: 0.98, height: 0.98 }, scene);
-  weaponPlane.material = materialFromTexture(scene, textures.weapons.glock17, { transparent: true });
-  weaponPlane.parent = camera;
-  weaponPlane.position.set(initialDisplay.offsetX, initialDisplay.offsetY, 1.55);
-  weaponPlane.rotation.z = initialDisplay.rotationZ;
-  // flipX/flipY 通过 scaling 负值镜像贴图（平面 backFaceCulling=false，翻转后仍可见）。
-  // TaC 背包图标不是第一人称 sprite：glock17/m4/ak47/awp 以 flipX 水平镜像校准到朝准星，
-  // flipY 会破坏枪身上下关系并把枪口压向热栏；具体朝向以 ?debugWeapon2D=1 和真实页面验收为准。
-  weaponPlane.scaling.set(initialDisplay.flipX ? -initialDisplay.scale : initialDisplay.scale, initialDisplay.flipY ? -initialDisplay.scale : initialDisplay.scale, initialDisplay.scale);
-  weaponPlane.renderingGroupId = 2;
-  weaponPlane.isPickable = false;
+function installE2eDebugHooks() {
+  if (!e2eMode) return;
+  window.__blockTargetRangeDebug = {
+    start: () => startGame(),
+    selectWeapon: (weaponId) => {
+      const index = WEAPON_ORDER.indexOf(weaponId);
+      if (index >= 0) selectWeaponSlot(index);
+    },
+    shoot: () => shoot(),
+    reload: () => reloadCurrentWeapon(),
+    // 死靶调试钩子：绕过 ray pick 直接在指定坐标放假人，供 E2E 精确验证
+    spawnDummyAt: (x, z) => {
+      if (state.mode !== "weaponLab" || !weaponLab) return null;
+      return weaponLab.spawnDummy(new BABYLON.Vector3(x, 0.04, z));
+    },
+    clearDummies: () => weaponLab?.clearDummies(),
+    // 敌人模式调试钩子：E2E 直接启动/停止敌人模式，无需按 B 键
+    startEnemyMode: () => weaponLab?.startEnemyMode(),
+    stopEnemyMode: () => weaponLab?.stopEnemyMode(),
+    // 将所有敌人瞬移到抵达位置，触发扣血/结束判定（E2E 专用，跳过等待行进时间）
+    advanceEnemiesToGoal: () => {
+      if (!weaponLab) return;
+      for (const enemy of weaponLab.enemies) {
+        enemy.group.position.z = WEAPON_LAB_CONFIG.enemyMode.goalZ + 1;
+      }
+    },
+    // 动靶模式调试钩子：E2E 直接启动/停止动靶模式，无需按 V 键
+    startMovingMode: () => weaponLab?.startMovingMode(),
+    stopMovingMode: () => weaponLab?.stopMovingMode(),
+    // 将所有动靶 x 设为 0 并冻结振荡，让 E2E shoot() 中心射线能命中（动靶振荡中 x 可能偏离中心）
+    moveMovingTargetsToCenter: () => {
+      if (!weaponLab) return;
+      for (const mt of weaponLab.movingTargets) {
+        mt.group.metadata.frozen = true;
+        mt.group.position.x = 0;
+      }
+    },
+    // 读取动靶位置数组，E2E 用来验证振荡
+    getMovingTargetPositions: () => {
+      if (!weaponLab) return [];
+      return weaponLab.movingTargets.map((mt) => ({
+        x: mt.group.position.x,
+        z: mt.group.position.z,
+        dead: Boolean(mt.group.metadata.dead),
+      }));
+    },
+    setModelConfig: (weaponId, modelConfig) => {
+      if (!WEAPON_CONFIG[weaponId]?.modelConfig || !modelConfig) return;
+      WEAPON_CONFIG[weaponId].modelConfig = {
+        ...WEAPON_CONFIG[weaponId].modelConfig,
+        ...modelConfig,
+      };
+      const controller = getWeaponController(weaponId);
+      if (controller?.root && typeof WEAPON_CONFIG[weaponId].modelConfig.scaling === "number") {
+        controller.root.scaling.setAll(WEAPON_CONFIG[weaponId].modelConfig.scaling);
+      }
+    },
+    snapshot: () => {
+      const weapon = getCurrentWeapon(state.weapons, WEAPON_CONFIG);
+      const controller = weaponModels[weapon.id];
+      const visibleMeshCount = controller?.root
+        ?.getChildMeshes(false)
+        .filter((mesh) => mesh.isEnabled() && mesh.isVisible && mesh.getTotalVertices?.() > 0)
+        .length ?? 0;
+      const screenBounds = getModelScreenBounds(controller);
+      return {
+        mode: state.mode,
+        currentWeaponId: weapon.id,
+        weaponLabel: weapon.label,
+        modelConfig: weapon.modelConfig ?? null,
+        muzzleFlash: getMuzzleFlashConfig(weapon.id),
+        startPanelVisible: Boolean(ui.startPanel?.isVisible),
+        weaponPlaneExists: Boolean(scene.getMeshByName("weapon-overlay")),
+        activeModel: {
+          ready: Boolean(controller?.ready),
+          failed: Boolean(controller?.failed),
+          source: controller?.source ?? "blockbench-json",
+          partCount: controller?.partCount ?? 0,
+          status: controller?.status ?? "missing",
+          rootEnabled: Boolean(controller?.root?.isEnabled()),
+          visibleMeshCount,
+          screenBounds,
+        },
+        runtime: {
+          ammo: state.weapons.ammo[weapon.id] ?? 0,
+          magazineSize: weapon.magazineSize,
+          reloading: state.weapons.reloading,
+          weaponRecoil: state.weaponRecoil,
+          muzzleFlashTimer: state.muzzleFlashTimer,
+          muzzleFlashEnabled: Boolean(muzzleFlashPlane?.isEnabled()),
+          ...getMuzzleDebug(controller),
+        },
+        // weaponLab 模式下暴露弹孔数、双层统计、死靶状态、相机锁定、玩家位置、AWP 开镜，供 e2e 探针验证
+        ...(state.mode === "weaponLab" && weaponLab ? {
+          weaponLab: {
+            bulletHoleCount: weaponLab.bulletHoles.length,
+            stats: weaponLab.getStats(),
+            dummiesCount: weaponLab.dummies.length,
+            aliveDummies: weaponLab.dummies.filter((d) => !d.group.metadata.dead).length,
+            mode: weaponLab.mode,
+            headshots: weaponLab.getStats().dummy.headshots,
+            bodyshots: weaponLab.getStats().dummy.bodyshots,
+            headshotRate: weaponLab.getStats().dummy.headshotRate,
+            enemiesCount: weaponLab.enemies.length,
+            enemyTimeLeft: weaponLab.enemyTimeLeft,
+            enemyHP: weaponLab.enemyHP,
+            enemyResult: weaponLab.enemyResult,
+            enemyKills: weaponLab.getStats().enemy.kills,
+            enemyHeadshots: weaponLab.getStats().enemy.headshots,
+            enemyHeadshotRate: weaponLab.getStats().enemy.headshotRate,
+            movingTargetsCount: weaponLab.movingTargets.length,
+            aliveMovingTargets: weaponLab.movingTargets.filter((m) => !m.group.metadata.dead).length,
+            movingKills: weaponLab.getStats().moving.kills,
+            movingHeadshots: weaponLab.getStats().moving.headshots,
+            movingHeadshotRate: weaponLab.getStats().moving.headshotRate,
+            cameraLocked: Boolean(weaponLab.cameraLocked),
+            playerPosition: {
+              x: camera.position.x,
+              y: camera.position.y,
+              z: camera.position.z,
+            },
+            ads: state.ads,
+            crosshair: WEAPON_CONFIG[state.weapons.currentWeaponId]?.crosshair?.image ?? null,
+            fov: camera.fov,
+          },
+        } : {}),
+      };
+    },
+  };
+}
 
-  muzzleFlashPlane = BABYLON.MeshBuilder.CreatePlane("muzzle-flash-overlay", { width: 0.42, height: 0.42 }, scene);
+function getModelScreenBounds(controller) {
+  if (!controller?.root?.isEnabled()) return null;
+  const meshes = controller.root
+    .getChildMeshes(false)
+    .filter((mesh) => mesh.isEnabled() && mesh.isVisible && mesh.getTotalVertices?.() > 0);
+  if (meshes.length === 0) return null;
+
+  const viewport = camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight());
+  const transform = scene.getTransformMatrix();
+  const points = [];
+  for (const mesh of meshes) {
+    mesh.computeWorldMatrix(true);
+    mesh.refreshBoundingInfo(true);
+    const projected = BABYLON.Vector3.Project(
+      mesh.getBoundingInfo().boundingBox.centerWorld,
+      BABYLON.Matrix.Identity(),
+      transform,
+      viewport
+    );
+    if (Number.isFinite(projected.x) && Number.isFinite(projected.y)) points.push(projected);
+  }
+  if (points.length === 0) return null;
+
+  const renderWidth = engine.getRenderWidth();
+  const renderHeight = engine.getRenderHeight();
+  const nearViewportPoints = points.filter((point) => (
+    point.x >= -renderWidth * 0.25
+    && point.x <= renderWidth * 1.25
+    && point.y >= -renderHeight * 0.25
+    && point.y <= renderHeight * 1.25
+  ));
+  const boundedPoints = nearViewportPoints.length >= 8 ? nearViewportPoints : points;
+  const xs = boundedPoints.map((point) => point.x).sort((a, b) => a - b);
+  const ys = boundedPoints.map((point) => point.y).sort((a, b) => a - b);
+  const lowIndex = Math.floor(boundedPoints.length * 0.1);
+  const highIndex = Math.max(lowIndex, Math.ceil(boundedPoints.length * 0.9) - 1);
+  const minX = Math.max(0, xs[lowIndex]);
+  const maxX = Math.min(renderWidth, xs[highIndex]);
+  const minY = Math.max(0, ys[lowIndex]);
+  const maxY = Math.min(renderHeight, ys[highIndex]);
+  const width = Math.max(0, maxX - minX);
+  const height = Math.max(0, maxY - minY);
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    width,
+    height,
+    centerX: minX + width / 2,
+    centerY: minY + height / 2,
+    areaRatio: (width * height) / (renderWidth * renderHeight),
+  };
+}
+
+function getWeaponController(weaponId) {
+  return weaponModels[weaponId];
+}
+
+function updateMuzzleFlash(controller, weaponId) {
+  if (!muzzleFlashPlane) return;
+  if (!controller?.ready || !controller.root?.isEnabled() || !controller.muzzleAnchor) {
+    muzzleFlashPlane.setEnabled(false);
+    return;
+  }
+  controller.muzzleAnchor.computeWorldMatrix(true);
+  muzzleFlashPlane.position.copyFrom(controller.muzzleAnchor.getAbsolutePosition());
+  // 按当前武器的 muzzleFlash 配置应用大小和透明度
+  const cfg = getMuzzleFlashConfig(weaponId);
+  muzzleFlashPlane.scaling.setAll(cfg.size);
+  muzzleFlashPlane.material.alpha = cfg.alpha;
+  muzzleFlashPlane.setEnabled(state.muzzleFlashTimer > 0);
+  // 不再写 rotation.z：BILLBOARDMODE_ALL 每帧覆盖 mesh rotation；旋转改用贴图 wAng 在 shoot() 里设置
+}
+
+function getMuzzleFlashConfig(weaponId) {
+  const cfg = WEAPON_CONFIG[weaponId]?.muzzleFlash;
+  return {
+    size: cfg?.size ?? 0.3,
+    alpha: cfg?.alpha ?? 0.85,
+    rotationRandom: cfg?.rotationRandom ?? Math.PI * 2,
+  };
+}
+
+function getMuzzleDebug(controller) {
+  const muzzleAnchorWorld = getMuzzleAnchorWorld(controller);
+  const muzzleFlashWorld = muzzleFlashPlane
+    ? vectorToArray(muzzleFlashPlane.position)
+    : null;
+  const muzzleAnchorScreen = projectWorldToScreen(muzzleAnchorWorld);
+  const muzzleFlashScreen = projectWorldToScreen(muzzleFlashPlane?.position ?? null);
+  return {
+    muzzleAnchorWorld: muzzleAnchorWorld ? vectorToArray(muzzleAnchorWorld) : null,
+    muzzleAnchorScreen,
+    muzzleFlashWorld,
+    muzzleFlashScreen,
+    muzzleFlashDistancePx: screenDistance(muzzleAnchorScreen, muzzleFlashScreen),
+  };
+}
+
+function getMuzzleAnchorWorld(controller) {
+  if (!controller?.muzzleAnchor) return null;
+  controller.muzzleAnchor.computeWorldMatrix(true);
+  return controller.muzzleAnchor.getAbsolutePosition().clone();
+}
+
+function projectWorldToScreen(point) {
+  if (!point) return null;
+  const viewport = camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight());
+  const projected = BABYLON.Vector3.Project(
+    point,
+    BABYLON.Matrix.Identity(),
+    scene.getTransformMatrix(),
+    viewport
+  );
+  if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y)) return null;
+  return {
+    x: projected.x,
+    y: projected.y,
+    z: projected.z,
+  };
+}
+
+function screenDistance(a, b) {
+  if (!a || !b) return null;
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function vectorToArray(vector) {
+  return [vector.x, vector.y, vector.z];
+}
+
+function buildWeaponOverlay() {
+  // 基础 plane 用 1×1，实际大小由 updateMuzzleFlash 按 muzzleFlash.size 走 scaling 控制
+  muzzleFlashPlane = BABYLON.MeshBuilder.CreatePlane("muzzle-flash-overlay", { width: 1, height: 1 }, scene);
   muzzleFlashPlane.material = materialFromTexture(scene, textures.muzzleFlash, {
     transparent: true,
     emissiveColor: BABYLON.Color3.FromHexString("#fff2a8"),
   });
-  muzzleFlashPlane.parent = camera;
-  muzzleFlashPlane.position.set(0.64, -0.5, 1.2);
+  muzzleFlashPlane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
   muzzleFlashPlane.renderingGroupId = 3;
   muzzleFlashPlane.isPickable = false;
   muzzleFlashPlane.setEnabled(false);
 
-  p90Model = createP90WeaponModel(scene, camera, (status) => {
-    if (debugWeaponLabel) debugWeaponLabel.text = status;
-  });
-
-  // 通用 3D 武器模型加载：遍历所有配置了 modelConfig 的武器，创建 3D 模型控制器。
-  // P90 走单独的 glTF 路径（createP90WeaponModel），不在此循环中。
+  // 通用 3D 武器模型加载：5 把武器统一走 createWeaponModel
   for (const id of WEAPON_ORDER) {
-    if (!WEAPON_CONFIG[id].modelConfig) continue;
     weaponModels[id] = createWeaponModel(
       scene,
       camera,
@@ -268,11 +607,7 @@ function resetGame({ preview }) {
   clearCrosshair(ui);
 
   if (preview) {
-    if (debugWeapon2D) {
-      state.mode = "debugWeapon2D";
-      spawnDebugWeapon2D();
-      showStart(ui, false);
-    } else if (debugWeapon) {
+    if (debugWeapon) {
       state.mode = "debugWeapon";
       spawnDebugWeapon();
       showStart(ui, false);
@@ -358,7 +693,7 @@ function spawnDebugWeapon() {
   state.weapons = selectWeapon(state.weapons, "p90", WEAPON_CONFIG);
   state.weaponRecoil = 0.2;
   state.muzzleFlashTimer = 0;
-  debugWeaponLabel = ui.addDebugLabel(p90Model?.status ?? "P90 model loading", p90Model.root, {
+  debugWeaponLabel = ui.addDebugLabel(weaponModels.p90?.status ?? "P90 model loading", weaponModels.p90.root, {
     anchorY: 0.7,
     offsetY: -82,
     width: "380px",
@@ -371,13 +706,13 @@ function spawnDebugWeapon() {
 function updateDebugWeapon(delta, elapsed) {
   state.weapons = updateWeaponState(state.weapons, delta, WEAPON_CONFIG);
   state.weaponRecoil = 0.18 + Math.sin(elapsed * 1.5) * 0.04;
-  if (debugWeaponLabel && p90Model) {
+  if (debugWeaponLabel && weaponModels.p90) {
     let bboxInfo = "";
     let warn = false;
-    if (p90Model.ready && p90Model.root) {
+    if (weaponModels.p90.ready && weaponModels.p90.root) {
       try {
-        p90Model.root.refreshBoundingInfo(true);
-        const bb = p90Model.root.getBoundingInfo().boundingBox;
+        weaponModels.p90.root.refreshBoundingInfo(true);
+        const bb = weaponModels.p90.root.getBoundingInfo().boundingBox;
         const sx = bb.maximumWorld.x - bb.minimumWorld.x;
         const sy = bb.maximumWorld.y - bb.minimumWorld.y;
         const sz = bb.maximumWorld.z - bb.minimumWorld.z;
@@ -392,57 +727,9 @@ function updateDebugWeapon(delta, elapsed) {
         bboxInfo = " | bb n/a";
       }
     }
-    debugWeaponLabel.text = `${p90Model.status ?? "loading"}${bboxInfo}${warn ? " WARN" : ""}`;
+    debugWeaponLabel.text = `${weaponModels.p90.status ?? "loading"}${bboxInfo}${warn ? " WARN" : ""}`;
     debugWeaponLabel.color = warn ? "#ff4b4b" : "#ffffa0";
   }
-  updateHud(ui, state);
-}
-
-function spawnDebugWeapon2D() {
-  camera.position.set(0, GAME_CONFIG.playerGroundY, 12);
-  camera.setTarget(new BABYLON.Vector3(0, 2.1, -24));
-  if (weaponPlane) weaponPlane.setEnabled(false);
-  if (muzzleFlashPlane) muzzleFlashPlane.setEnabled(false);
-  if (p90Model?.root) p90Model.root.setEnabled(false);
-  // debugWeapon2D 模式只校准 2D 贴图方向，必须关掉所有 3D 模型，
-  // 否则 updateWeapon() 每帧仍会启用当前武器的 3D 模型，碎片叠在 2D 校准页上。
-  for (const controller of Object.values(weaponModels)) {
-    if (controller?.root) controller.root.setEnabled(false);
-  }
-  const cols = WEAPON_ORDER.length;
-  const stepX = 2.0;
-  const startX = -((cols - 1) * stepX) / 2;
-  const variants = [
-    { name: "native", flipX: false, flipY: false },
-    { name: "flipH", flipX: true, flipY: false },
-    { name: "flipV", flipX: false, flipY: true },
-    { name: "flipHV", flipX: true, flipY: true },
-  ];
-  const rowStepY = 0.95;
-  const startY = 1.2;
-  WEAPON_ORDER.forEach((id, index) => {
-    const weapon = WEAPON_CONFIG[id];
-    const display = weapon.display;
-    variants.forEach((variant, row) => {
-      const plane = BABYLON.MeshBuilder.CreatePlane(`debug-2d-${id}-${variant.name}`, { width: 0.8, height: 0.8 }, scene);
-      plane.material = materialFromTexture(scene, textures.weapons[id], { transparent: true });
-      plane.parent = camera;
-      plane.position.set(startX + index * stepX, startY - row * rowStepY, 1.6);
-      plane.rotation.z = display.rotationZ;
-      const s = display.scale * 0.65;
-      plane.scaling.set(variant.flipX ? -s : s, variant.flipY ? -s : s, s);
-      plane.renderingGroupId = 2;
-      plane.isPickable = false;
-      debugMeshes.push(plane);
-      ui.addDebugLabel(`${id} ${variant.name}`, plane, { anchorY: 0, offsetY: 32, width: "140px", size: 12 });
-    });
-  });
-  setCrosshair(ui, "normal", false);
-}
-
-function updateDebugWeapon2D(delta, elapsed) {
-  void delta;
-  void elapsed;
   updateHud(ui, state);
 }
 
@@ -486,7 +773,12 @@ function shoot() {
   ensureAudio();
   state.weaponAnimTimer = Math.min(0.16, weapon.fireInterval);
   state.weaponRecoil = weapon.recoil;
-  state.muzzleFlashTimer = 0.055;
+  state.muzzleFlashTimer = muzzleFlashDuration;
+  // 每次开火随机化枪火贴图旋转，避免一坨白色；用 wAng 而非 mesh rotation（billboard 会覆盖后者）
+  const flashCfg = getMuzzleFlashConfig(weapon.id);
+  if (muzzleFlashPlane?.material?.diffuseTexture) {
+    muzzleFlashPlane.material.diffuseTexture.wAng = (Math.random() - 0.5) * flashCfg.rotationRandom;
+  }
   state.crosshairHitTimer = 0;
   clearCrosshair(ui);
   playSound(weapon.fireSound);
@@ -498,11 +790,23 @@ function shoot() {
   updateHud(ui, state);
 
   const hit = pickCenter();
-  if (!hit?.hit || !hit.pickedMesh) return;
+  if (!hit?.hit || !hit.pickedMesh) {
+    // weaponLab 脱靶（射线打天空/未命中 solid mesh）记录射击但不记命中
+    if (state.mode === "weaponLab") weaponLab?.onShootMiss(weapon);
+    return;
+  }
 
   const target = hit.pickedMesh.metadata?.target;
   if (!target) {
     hitBlock(hit.pickedMesh, hit.pickedPoint);
+    if (state.mode === "weaponLab") {
+      // 命中 lab.wall 算命中并贴弹孔；命中地面算脱靶（记射击不记命中）
+      if (hit.pickedMesh === weaponLab.wall) {
+        weaponLab?.onShootHit(hit.pickedPoint, hit.getNormal(true), weapon);
+      } else {
+        weaponLab?.onShootMiss(weapon);
+      }
+    }
     return;
   }
   hitTarget(target, hit.pickedMesh.metadata.hitType, hit.pickedPoint, weapon);
@@ -527,6 +831,18 @@ function selectWeaponSlot(index) {
     ensureAudio();
     playSound(WEAPON_CONFIG[weaponId].drawSound ?? "weaponDraw");
     updateHud(ui, state);
+    // 切换准星贴图（每把武器配不同准星）
+    setCrosshairForWeapon(ui, weaponId);
+    // 切换武器时重置 AWP 开镜状态
+    if (state.ads) {
+      state.ads = false;
+      camera.fov = DEFAULT_FOV;
+      camera.angularSensibility = DEFAULT_ANGULAR_SENSIBILITY;
+      if (ui.scopeOverlay) ui.scopeOverlay.isVisible = false;
+      if (ui.crosshairImage) ui.crosshairImage.isVisible = true;
+    }
+    // weaponLab 切武器重置会话统计（弹匣层+会话层都清零）
+    if (state.mode === "weaponLab") weaponLab?.onWeaponSwitch();
   }
 }
 
@@ -559,7 +875,20 @@ function hitTarget(target, hitType, point, weapon) {
   setCrosshair(ui, hitResult.critical ? "critical-hit" : "hit", true);
   playSound(hitResult.critical ? "critical" : "hit");
 
-  if (data.health <= 0) {
+  // 死靶走隐藏+重生分支（onDummyHit 记爆头/身体统计，onDummyKilled 设 3s 重生）；
+  // 敌人走 dispose+统计分支（onEnemyHit 记统计，onEnemyKilled dispose+splice lab.enemies）；
+  // 动靶走隐藏+重生换相位分支（onMovingHit 记统计，onMovingKilled 设 0.5s 重生）；
+  // 普通敌人走 defeatTarget（dispose+score+combo+splice targets[]）
+  if (data.isDummy) {
+    weaponLab?.onDummyHit(hitType, weapon, hitResult);
+    if (data.health <= 0) weaponLab?.onDummyKilled(target, point, hitResult);
+  } else if (data.isEnemy) {
+    weaponLab?.onEnemyHit(hitType, weapon, hitResult);
+    if (data.health <= 0) weaponLab?.onEnemyKilled(target, point, hitResult);
+  } else if (data.isMoving) {
+    weaponLab?.onMovingHit(hitType, weapon, hitResult);
+    if (data.health <= 0) weaponLab?.onMovingKilled(target, point, hitResult);
+  } else if (data.health <= 0) {
     defeatTarget(target, point, hitResult);
   }
   updateHud(ui, state);
@@ -720,11 +1049,15 @@ function movePlayer(delta) {
   if (keys.has("KeyD")) move.addInPlace(right.scale(speed * delta));
   camera.position.addInPlace(move);
 
+  // weaponLab 模式读 weaponLab 的 solidColliders 和 WEAPON_LAB_CONFIG.playerBounds；
+  // 靶场模式读 world.solidColliders 和 GAME_CONFIG.playerBounds
+  const colliders = weaponLabMode ? weaponLab.solidColliders : world.solidColliders;
+  const bounds = weaponLabMode ? WEAPON_LAB_CONFIG.playerBounds : GAME_CONFIG.playerBounds;
   const resolved = resolveCircleCollision(
     { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-    world.solidColliders,
+    colliders,
     GAME_CONFIG.playerRadius,
-    GAME_CONFIG.playerBounds
+    bounds
   );
   camera.position.set(resolved.x, state.playerY, resolved.z);
 }
@@ -766,59 +1099,76 @@ function updateWeapon(delta) {
   state.weapons = updateWeaponState(state.weapons, delta, WEAPON_CONFIG);
   state.shootCooldown = state.weapons.fireTimer;
   const weapon = getCurrentWeapon(state.weapons, WEAPON_CONFIG);
-  if ((state.mode === "playing" || state.mode === "countdown") && state.weapons.triggerHeld && weapon.automatic) {
+  if ((state.mode === "playing" || state.mode === "countdown" || state.mode === "weaponLab") && state.weapons.triggerHeld && weapon.automatic) {
     shoot();
+  }
+
+  // AWP 开镜：FOV 平滑过渡 + 瞄准镜蒙版 + 准星显隐 + 鼠标灵敏度
+  const canAds = state.mode === "weaponLab" && weapon.id === "awp" && weapon.ads;
+  const targetFov = canAds && state.ads ? weapon.ads.fov : DEFAULT_FOV;
+  camera.fov = BABYLON.Scalar.Lerp(camera.fov, targetFov, Math.min(1, delta * 10));
+  if (canAds) {
+    const scopeVisible = state.ads;
+    if (ui.scopeOverlay) ui.scopeOverlay.isVisible = scopeVisible;
+    if (ui.crosshairImage) ui.crosshairImage.isVisible = !scopeVisible;
+    // 开镜时降低鼠标灵敏度（angularSensibility 越大越慢）
+    const targetSensibility = scopeVisible
+      ? DEFAULT_ANGULAR_SENSIBILITY / (weapon.ads.sensitivityScale ?? 1)
+      : DEFAULT_ANGULAR_SENSIBILITY;
+    camera.angularSensibility = BABYLON.Scalar.Lerp(camera.angularSensibility, targetSensibility, Math.min(1, delta * 10));
+  } else {
+    // 非 AWP 武器：确保开镜蒙版隐藏、准星显示
+    if (ui.scopeOverlay?.isVisible) ui.scopeOverlay.isVisible = false;
+    if (ui.crosshairImage && !ui.crosshairImage.isVisible) ui.crosshairImage.isVisible = true;
   }
 
   state.weaponRecoil = Math.max(0, state.weaponRecoil - delta * 7);
   state.weaponAnimTimer = Math.max(0, state.weaponAnimTimer - delta);
   state.muzzleFlashTimer = Math.max(0, state.muzzleFlashTimer - delta);
-  // debugWeapon2D 模式只校准 2D 贴图，跳过所有 3D 模型激活，防止碎片叠加到 2D 校准页上。
-  const isDebug2D = state.mode === "debugWeapon2D";
-  const p90Visible = isDebug2D ? false : updateP90WeaponModel(p90Model, {
-    active: weapon.id === "p90",
-    recoil: state.weaponRecoil,
-    reloading: state.weapons.reloading,
-  });
-  // 通用 3D 模型切换：遍历所有已加载的 3D 武器，只激活当前武器
-  let modelVisible = p90Visible;
+  // 通用 3D 模型切换：遍历所有已加载的 3D 武器，只激活当前武器。
   for (const [id, controller] of Object.entries(weaponModels)) {
-    const visible = isDebug2D ? false : updateWeaponModel(controller, {
+    updateWeaponModel(controller, {
       active: weapon.id === id,
       recoil: state.weaponRecoil,
       reloading: state.weapons.reloading,
       modelConfig: WEAPON_CONFIG[id].modelConfig,
     });
-    if (visible) modelVisible = true;
   }
-  if (weaponPlane) {
-    const display = weapon.display;
-    const weaponTexture = textures.weapons[weapon.id];
-    if (weaponPlane.material?.diffuseTexture !== weaponTexture) weaponPlane.material.diffuseTexture = weaponTexture;
-    // 3D 模型加载成功时隐藏 2D weaponPlane，加载失败或未完成时回退到 2D
-    weaponPlane.setEnabled(!modelVisible);
-    const reloadDrop = state.weapons.reloading ? 0.1 : 0;
-    weaponPlane.position.x = display.offsetX + state.weaponRecoil * 0.08;
-    weaponPlane.position.y = display.offsetY - state.weaponRecoil * 0.08 - reloadDrop;
-    weaponPlane.rotation.z = display.rotationZ - state.weaponRecoil * 0.14 + (state.weapons.reloading ? 0.08 : 0);
-    const weaponScale = display.scale + state.weaponRecoil * 0.04;
-    // 镜像符号必须与 buildWeaponOverlay 初始构建一致，否则切枪瞬间会闪一下反向；后坐力只放大绝对值不改符号。
-    weaponPlane.scaling.set(display.flipX ? -weaponScale : weaponScale, display.flipY ? -weaponScale : weaponScale, weaponScale);
-  }
-  if (muzzleFlashPlane) {
-    // 枪口火焰位置按当前武器的 modelConfig.muzzleOffset 切换，不共用固定值
-    const muzzleOffset = weapon.modelConfig?.muzzleOffset ?? [0.64, -0.5, 1.2];
-    muzzleFlashPlane.position.set(muzzleOffset[0], muzzleOffset[1], muzzleOffset[2]);
-    muzzleFlashPlane.setEnabled(state.muzzleFlashTimer > 0);
-    muzzleFlashPlane.rotation.z += delta * 20;
-  }
+  updateMuzzleFlash(getWeaponController(weapon.id), weapon.id);
   state.crosshairHitTimer = Math.max(0, state.crosshairHitTimer - delta);
   if (state.crosshairHitTimer <= 0 && (state.mode === "playing" || state.mode === "countdown")) {
     updateAimState();
   }
 
+  // 命中标记淡出
+  updateHitMarker(ui, delta);
+
   state.comboPopTimer = Math.max(0, state.comboPopTimer - delta);
   if (state.comboPopTimer <= 0) ui.comboPopEl.isVisible = false;
+}
+
+// weaponLab 模式每帧更新：统计 tick + 看板刷新 + 换弹完成检测。
+// 武器状态/后坐力/模型/枪火已在 updateWeapon 中更新，这里只处理 weaponLab 特有逻辑。
+let savedAngularSensibility = null;
+function updateWeaponLab(delta, elapsed) {
+  if (!weaponLab) return;
+  // Tab 锁定时暂停移动和鼠标转向（angularSensibility 设极大值），方便观察弹孔分布
+  if (weaponLab.cameraLocked) {
+    if (savedAngularSensibility === null) {
+      savedAngularSensibility = camera.angularSensibility;
+      camera.angularSensibility = 1e9;
+    }
+  } else {
+    if (savedAngularSensibility !== null) {
+      camera.angularSensibility = savedAngularSensibility;
+      savedAngularSensibility = null;
+    }
+    movePlayer(delta);
+  }
+  weaponLab.update(delta, elapsed);
+  // 换弹完成检测：reloading 从 true→false 时 commit magazine 统计
+  if (wasReloading && !state.weapons.reloading) weaponLab.onReload();
+  wasReloading = state.weapons.reloading;
 }
 
 function finishGame(victory) {

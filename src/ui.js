@@ -6,7 +6,7 @@ import { getCurrentWeapon, getReloadProgress } from "./weapon.js";
 const FONT_TITLE = "MinecraftTitle, PingFang SC, Microsoft YaHei, system-ui";
 const FONT_UI = "MinecraftUI, PingFang SC, Microsoft YaHei, system-ui";
 
-export function createGameUi(scene, { onStart, onRestart }) {
+export function createGameUi(scene, { onStart, onRestart, weaponLabMode = false }) {
   const texture = GUI.AdvancedDynamicTexture.CreateFullscreenUI("game-ui", true, scene);
   texture.idealWidth = 1280;
   texture.idealHeight = 720;
@@ -48,7 +48,8 @@ export function createGameUi(scene, { onStart, onRestart }) {
   texture.addControl(ui.resultPanel);
   buildHud(texture, ui);
   buildCrosshair(texture, ui);
-  buildTip(texture);
+  buildScopeOverlay(texture, ui);
+  buildTip(texture, ui, weaponLabMode);
 
   ui.resultPanel.isVisible = false;
   ui.countdownEl.isVisible = false;
@@ -100,15 +101,37 @@ export function setCrosshair(ui, state, enabled) {
     "block-hit": "#dff7ff",
     "critical-hit": "#ffe36a",
   };
+  const color = colors[state] ?? colors.normal;
   ui.crosshairControls.forEach((control) => {
-    control.color = colors[state] ?? colors.normal;
-    control.background = colors[state] ?? colors.normal;
+    control.color = color;
   });
-  if (ui.hitMarkerEl) ui.hitMarkerEl.isVisible = state === "hit" || state === "critical-hit";
+  if (ui.hitMarkerEl) {
+    const showMarker = state === "hit" || state === "critical-hit";
+    ui.hitMarkerEl.isVisible = showMarker;
+    if (showMarker) ui.hitMarkerTimer = 0.15;
+  }
 }
 
 export function clearCrosshair(ui) {
   setCrosshair(ui, "normal", true);
+}
+
+// 按当前武器切换准星贴图（每把武器配不同 crosshair.image）
+export function setCrosshairForWeapon(ui, weaponId) {
+  const weapon = WEAPON_CONFIG[weaponId];
+  if (!weapon?.crosshair?.image || !ui.crosshairImage) return;
+  ui.crosshairImage.source = weapon.crosshair.image;
+}
+
+// 命中标记淡出：命中后 0.15s 自动隐藏 hitMarker，避免常亮
+export function updateHitMarker(ui, delta) {
+  if (ui.hitMarkerTimer > 0) {
+    ui.hitMarkerTimer -= delta;
+    if (ui.hitMarkerTimer <= 0) {
+      ui.hitMarkerEl.isVisible = false;
+      ui.hitMarkerTimer = 0;
+    }
+  }
 }
 
 export function showResult(ui, { victory, rating, score, hits, bestCombo, baseHealth }) {
@@ -128,6 +151,11 @@ export function showResult(ui, { victory, rating, score, hits, bestCombo, baseHe
 
 export function showStart(ui, visible) {
   ui.startPanel.isVisible = visible;
+}
+
+export function hideArenaHud(ui) {
+  // weaponLab 模式隐藏靶场专属 HUD（Score/Time/基地血量/经验条/tip），保留准星+热栏
+  (ui.arenaHudControls ?? []).forEach((control) => { control.isVisible = false; });
 }
 
 export function hideResult(ui) {
@@ -231,6 +259,9 @@ function getDebugLabelMesh(target, options) {
 }
 
 function buildHud(texture, ui) {
+  // 收集靶场专属 HUD 控件，供 weaponLab 模式整体隐藏（保留准星+热栏）
+  ui.arenaHudControls = [];
+
   const scoreBoard = pixelPanel("score-board", 174, 72);
   scoreBoard.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
   scoreBoard.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
@@ -238,6 +269,7 @@ function buildHud(texture, ui) {
   scoreBoard.top = -116;
   scoreBoard.addControl(labelStack("Score", ui.scoreEl));
   texture.addControl(scoreBoard);
+  ui.arenaHudControls.push(scoreBoard);
 
   const timeBoard = pixelPanel("time-board", 156, 72);
   timeBoard.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -245,6 +277,7 @@ function buildHud(texture, ui) {
   timeBoard.top = 18;
   timeBoard.addControl(labelStack("Time", ui.timeEl));
   texture.addControl(timeBoard);
+  ui.arenaHudControls.push(timeBoard);
 
   ui.baseHealthEl.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
   ui.baseHealthEl.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
@@ -253,6 +286,7 @@ function buildHud(texture, ui) {
   ui.baseHealthEl.width = "220px";
   ui.baseHealthEl.height = "36px";
   texture.addControl(ui.baseHealthEl);
+  ui.arenaHudControls.push(ui.baseHealthEl);
 
   const comboWrap = new GUI.StackPanel("combo-wrap");
   comboWrap.width = "430px";
@@ -276,6 +310,7 @@ function buildHud(texture, ui) {
   xpBack.addControl(ui.comboFillEl);
   comboWrap.addControl(xpBack);
   texture.addControl(comboWrap);
+  ui.arenaHudControls.push(comboWrap);
 
   buildHotbar(texture, ui);
 
@@ -393,25 +428,17 @@ function buildHotbar(texture, ui) {
 }
 
 function buildCrosshair(texture, ui) {
-  const horizontal = new GUI.Rectangle("crosshair-horizontal");
-  horizontal.width = "28px";
-  horizontal.height = "4px";
-  horizontal.thickness = 0;
-  horizontal.background = "#ffffff";
-  const vertical = new GUI.Rectangle("crosshair-vertical");
-  vertical.width = "4px";
-  vertical.height = "28px";
-  vertical.thickness = 0;
-  vertical.background = "#ffffff";
-  const core = new GUI.Rectangle("crosshair-core");
-  core.width = "6px";
-  core.height = "6px";
-  core.thickness = 0;
-  core.background = "#ffffff";
-  [horizontal, vertical, core].forEach((control) => {
-    texture.addControl(control);
-    ui.crosshairControls.push(control);
-  });
+  // 像素准星：用 GUI.Image 加载当前武器的 crosshair 贴图，取代旧的横+竖+中心点 Rectangle。
+  // setCrosshairForWeapon 在武器切换时切换 source；setCrosshair 在命中时用 color 染色。
+  const crosshair = new GUI.Image("crosshair", ASSET_PATHS.crosshair.dot);
+  crosshair.width = "32px";
+  crosshair.height = "32px";
+  crosshair.stretch = GUI.Image.STRETCH_UNIFORM;
+  crosshair.color = "#ffffff";
+  texture.addControl(crosshair);
+  ui.crosshairImage = crosshair;
+  ui.crosshairControls = [crosshair];
+
   const hitMarker = new GUI.Image("hit-marker", ASSET_PATHS.tacHitMarker);
   hitMarker.width = "34px";
   hitMarker.height = "34px";
@@ -419,16 +446,67 @@ function buildCrosshair(texture, ui) {
   hitMarker.isVisible = false;
   texture.addControl(hitMarker);
   ui.hitMarkerEl = hitMarker;
+  ui.hitMarkerTimer = 0;
 }
 
-function buildTip(texture) {
-  const tip = pixelPanel("tip", 500, 38);
+// AWP 开镜瞄准镜蒙版：外圈半透明黑色遮罩 + 中心 circle.png 镜框 + 红色十字线
+// 开镜时 main.js 设 ui.scopeOverlay.isVisible = true，关镜时 false
+function buildScopeOverlay(texture, ui) {
+  const overlay = new GUI.Container("scope-overlay");
+  overlay.isVisible = false;
+  overlay.width = "100%";
+  overlay.height = "100%";
+
+  // 外圈半透明黑色遮罩，让视野外缘变暗
+  const dim = new GUI.Rectangle("scope-dim");
+  dim.width = "100%";
+  dim.height = "100%";
+  dim.thickness = 0;
+  dim.background = "rgba(0, 0, 0, 0.55)";
+  overlay.addControl(dim);
+
+  // 中心圆形镜框：circle.png 放大到 500px，保持像素风
+  const scope = new GUI.Image("scope-circle", ASSET_PATHS.crosshair.circle);
+  scope.width = "500px";
+  scope.height = "500px";
+  scope.stretch = GUI.Image.STRETCH_UNIFORM;
+  scope.color = "#1a1a1a";
+  overlay.addControl(scope);
+
+  // 红色十字线（狙击镜准星）
+  const hLine = new GUI.Rectangle("scope-h-line");
+  hLine.width = "2px";
+  hLine.height = "500px";
+  hLine.thickness = 0;
+  hLine.background = "#ff3333";
+  hLine.alpha = 0.5;
+  overlay.addControl(hLine);
+
+  const vLine = new GUI.Rectangle("scope-v-line");
+  vLine.width = "500px";
+  vLine.height = "2px";
+  vLine.thickness = 0;
+  vLine.background = "#ff3333";
+  vLine.alpha = 0.5;
+  overlay.addControl(vLine);
+
+  texture.addControl(overlay);
+  ui.scopeOverlay = overlay;
+}
+
+function buildTip(texture, ui, weaponLabMode = false) {
+  const tip = pixelPanel("tip", weaponLabMode ? 720 : 500, 38);
   tip.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
   tip.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
   tip.top = -170;
-  const label = text("W A S D 移动   空格跳跃   鼠标射击   R 换弹   1-5 切枪", 16, "#f8f8f8");
+  // weaponLab 模式显示专属操作提示（含 Tab 锁定相机、T 清弹孔、G 放死靶、H 清死靶、B 敌人模式），且不加入 arenaHudControls
+  const tipText = weaponLabMode
+    ? "WASD 移动  Shift 跑步  空格跳跃  Tab 锁定相机  鼠标射击  R 换弹  1-5 切枪  T 清弹孔  G 放死靶  H 清死靶  B 敌人模式  V 动靶模式"
+    : "W A S D 移动   空格跳跃   鼠标射击   R 换弹   1-5 切枪";
+  const label = text(tipText, 16, "#f8f8f8");
   tip.addControl(label);
   texture.addControl(tip);
+  if (!weaponLabMode) ui.arenaHudControls.push(tip);
 }
 
 function buildStartPanel(onStart) {
