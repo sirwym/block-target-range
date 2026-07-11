@@ -1,0 +1,45 @@
+@font-face {
+  font-family: "MinecraftTitle";
+  src: url("/assets/fonts/minecraft-title.woff2") format("woff2");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "MinecraftUI";
+  src: url("/assets/fonts/minecraft-ui.woff2") format("woff2");
+  font-display: swap;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #101620;
+  color: #fff;
+  font-family: "MinecraftUI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  outline: none;
+}
+
+#app::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 58%, transparent 0 48%, rgba(5, 8, 15, 0.16) 74%, rgba(5, 8, 15, 0.34));
+}

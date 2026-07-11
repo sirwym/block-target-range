@@ -1,0 +1,22 @@
+{
+  "name": "block-target-range-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "node --test",
+    "test:e2e": "npx playwright test",
+    "check": "npm run test && npm run build"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^8.21.1",
+    "@babylonjs/gui": "^8.21.1",
+    "@babylonjs/loaders": "^8.56.2",
+    "vite": "^7.0.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}
