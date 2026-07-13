@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as BABYLON from "@babylonjs/core";
-import { spawnProjectileTrail, updateTemporaryMeshes, getTracerPoolSize, createFloatingText } from "../src/effects.js";
+import { spawnProjectileTrail, updateTemporaryMeshes, getTracerPoolSize, createFloatingText, createExplosionEffect } from "../src/effects.js";
 
 const engine = new BABYLON.NullEngine();
 const scene = new BABYLON.Scene(engine);
@@ -58,4 +58,26 @@ test("updateTemporaryMeshes tolerates null effect entries", () => {
   const effects = [null];
   assert.doesNotThrow(() => updateTemporaryMeshes([], effects, camera, scene, 0.05));
   assert.equal(effects.length, 0, "null entry removed");
+});
+
+test("createExplosionEffect spawns flash + sparks + smoke", () => {
+  const effects = [];
+  const position = new BABYLON.Vector3(0, 1, 0);
+  createExplosionEffect(scene, effects, position);
+  // 1 flash + 24 sparks + 8 smoke = 33
+  assert.equal(effects.length, 33);
+  for (const effect of effects) {
+    assert.equal(effect.mesh.isPickable, false, "explosion mesh not pickable");
+    assert.equal(effect.mesh.renderingGroupId, 2, "explosion mesh in rendering group 2");
+    assert.ok(effect.life > 0 && effect.life <= 1, "reasonable lifetime");
+  }
+});
+
+test("explosion effects expire and dispose via updateTemporaryMeshes", () => {
+  const effects = [];
+  const position = new BABYLON.Vector3(0, 1, 0);
+  createExplosionEffect(scene, effects, position);
+  // 推进足够长时间让所有效果过期（max life = 0.9s）
+  updateTemporaryMeshes([], effects, camera, scene, 1.5);
+  assert.equal(effects.length, 0, "all explosion effects expired");
 });

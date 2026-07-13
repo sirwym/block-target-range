@@ -29,7 +29,8 @@ export function createGameUi(scene, { onStart, onRestart, weaponLabMode = false 
     comboTimerEl: text("经验充能", 18, "#d8ffd0"),
     comboFillEl: new GUI.Rectangle("combo-fill"),
     weaponCooldownFillEl: new GUI.Rectangle("weapon-cooldown-fill"),
-    reloadFillEl: new GUI.Rectangle("reload-fill"),
+    // 换弹进度填充：放在 reloadbar 容器内，用动态 width 表示进度
+    reloadFillEl: new GUI.Image("reload-fill", ASSET_PATHS.gui.reloadbar),
     weaponNameEl: text("Glock 17", 18, "#ffffff", FONT_TITLE),
     weaponAmmoEl: text("17 / 17", 24, "#ffffa0", FONT_TITLE),
     baseHealthEl: text("♥♥♥♥♥", 26, "#ff5555"),
@@ -50,10 +51,12 @@ export function createGameUi(scene, { onStart, onRestart, weaponLabMode = false 
   buildCrosshair(texture, ui);
   buildScopeOverlay(texture, ui);
   buildTip(texture, ui, weaponLabMode);
+  buildInventoryPanel(texture, ui);
 
   ui.resultPanel.isVisible = false;
   ui.countdownEl.isVisible = false;
   ui.comboPopEl.isVisible = false;
+  ui.inventoryOverlay.isVisible = false;
   setCrosshair(ui, "normal", true);
   return ui;
 }
@@ -71,10 +74,14 @@ export function updateHud(ui, state) {
     ? `换弹 ${Math.round(getReloadProgress(state.weapons) * 100)}%`
     : `${ammo} / ${weapon.magazineSize}`;
   const weaponReady = 1 - Math.min(1, (state.weapons?.fireTimer ?? 0) / weapon.fireInterval);
-  ui.weaponCooldownFillEl.width = `${Math.round(52 * weaponReady)}px`;
+  ui.weaponCooldownFillEl.width = `${Math.round(34 * weaponReady)}px`;
   ui.weaponCooldownFillEl.background = weaponReady >= 1 ? "#72e857" : "#ffe36a";
-  ui.reloadFillEl.width = `${Math.round(210 * getReloadProgress(state.weapons ?? {}))}px`;
-  ui.reloadFillEl.background = state.weapons?.reloading ? "#ffe36a" : "#72e857";
+  // 换弹进度宽度对齐 reloadBack 总宽 200px（三层布局后居中换弹条）
+  ui.reloadFillEl.width = `${Math.round(200 * getReloadProgress(state.weapons ?? {}))}px`;
+  // 开火模式图标切换：auto 武器显示 firemode_auto，半自动显示 firemode_semi
+  if (ui.firemodeIcon) {
+    ui.firemodeIcon.source = weapon.automatic ? ASSET_PATHS.gui.firemodeAuto : ASSET_PATHS.gui.firemodeSemi;
+  }
   ui.weaponSlots.forEach((slot) => {
     const selected = slot.metadata?.weaponId === weapon.id;
     slot.thickness = selected ? 4 : 0;
@@ -327,29 +334,102 @@ function buildHud(texture, ui) {
 }
 
 function buildHotbar(texture, ui) {
+  // 三层布局：顶部信息行（武器名+弹药+开火模式） / 换弹条 / 9 格热栏
+  // 避免换弹条横穿热栏格子和武器信息重叠
   const wrap = new GUI.Rectangle("hotbar-wrap");
-  wrap.width = "540px";
-  wrap.height = "112px";
+  wrap.width = "360px";
+  wrap.height = "96px";
   wrap.thickness = 0;
   wrap.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
   wrap.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
   wrap.top = -8;
 
+  // 顶部信息行：武器名 + 弹药，水平排列居中
   const weaponInfo = new GUI.StackPanel("weapon-info");
-  weaponInfo.width = "250px";
-  weaponInfo.height = "44px";
-  weaponInfo.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+  weaponInfo.isHorizontal = true;
+  weaponInfo.width = "280px";
+  weaponInfo.height = "22px";
+  weaponInfo.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
   weaponInfo.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
-  weaponInfo.left = -6;
-  weaponInfo.top = 0;
-  ui.weaponNameEl.height = "20px";
-  ui.weaponNameEl.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
-  ui.weaponAmmoEl.height = "24px";
-  ui.weaponAmmoEl.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+  weaponInfo.top = "2px";
+  ui.weaponNameEl.height = "18px";
+  ui.weaponNameEl.fontSize = 15;
+  ui.weaponNameEl.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+  ui.weaponAmmoEl.height = "18px";
+  ui.weaponAmmoEl.fontSize = 16;
+  ui.weaponAmmoEl.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
   weaponInfo.addControl(ui.weaponNameEl);
   weaponInfo.addControl(ui.weaponAmmoEl);
   wrap.addControl(weaponInfo);
 
+  // 开火模式图标：放在信息行右侧
+  const firemodeIcon = new GUI.Image("firemode-icon", ASSET_PATHS.gui.firemodeAuto);
+  firemodeIcon.width = "14px";
+  firemodeIcon.height = "14px";
+  firemodeIcon.left = "130px";
+  firemodeIcon.top = "4px";
+  firemodeIcon.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+  firemodeIcon.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  firemodeIcon.stretch = GUI.Image.STRETCH_FILL;
+  firemodeIcon.alpha = 0.92;
+  wrap.addControl(firemodeIcon);
+  ui.firemodeIcon = firemodeIcon;
+
+  // 换弹条：顶部信息行下方居中，不横穿热栏格子
+  const reloadBack = new GUI.Container("reload-back");
+  reloadBack.width = "200px";
+  reloadBack.height = "6px";
+  reloadBack.left = "0px";
+  reloadBack.top = "28px";
+  reloadBack.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+  reloadBack.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  reloadBack.alpha = 0.92;
+  reloadBack.clipChildren = true;
+
+  const reloadBg = new GUI.Image("reload-bg", ASSET_PATHS.gui.reloadbar);
+  reloadBg.width = "200px";
+  reloadBg.height = "6px";
+  reloadBg.stretch = GUI.Image.STRETCH_FILL;
+  reloadBack.addControl(reloadBg);
+
+  ui.reloadFillEl.height = "4px";
+  ui.reloadFillEl.width = "0px";
+  ui.reloadFillEl.left = 0;
+  ui.reloadFillEl.top = 0;
+  ui.reloadFillEl.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+  ui.reloadFillEl.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+  ui.reloadFillEl.stretch = GUI.Image.STRETCH_FILL;
+  reloadBack.addControl(ui.reloadFillEl);
+
+  const reloadBorder = new GUI.Rectangle("reload-border");
+  reloadBorder.width = "200px";
+  reloadBorder.height = "6px";
+  reloadBorder.color = "#0b120a";
+  reloadBorder.thickness = 1;
+  reloadBorder.background = "transparent";
+  reloadBack.addControl(reloadBorder);
+  wrap.addControl(reloadBack);
+
+  // 武器冷却条：放在换弹条左侧，不与换弹条重叠
+  const cooldownBack = new GUI.Rectangle("weapon-cooldown-back");
+  cooldownBack.width = "34px";
+  cooldownBack.height = "4px";
+  cooldownBack.left = "-120px";
+  cooldownBack.top = "29px";
+  cooldownBack.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+  cooldownBack.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  cooldownBack.background = "#162315";
+  cooldownBack.color = "#0b120a";
+  cooldownBack.thickness = 1;
+  ui.weaponCooldownFillEl.height = "2px";
+  ui.weaponCooldownFillEl.width = "34px";
+  ui.weaponCooldownFillEl.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+  ui.weaponCooldownFillEl.background = "#72e857";
+  ui.weaponCooldownFillEl.thickness = 0;
+  cooldownBack.addControl(ui.weaponCooldownFillEl);
+  wrap.addControl(cooldownBack);
+
+  // 热栏底纹（inventory.png 热栏槽位区域）
   const background = new GUI.Image("inventory-hotbar", ASSET_PATHS.inventory);
   background.stretch = GUI.Image.STRETCH_FILL;
   background.sourceLeft = 7;
@@ -357,73 +437,39 @@ function buildHotbar(texture, ui) {
   background.sourceWidth = 162;
   background.sourceHeight = 18;
   background.alpha = 0.92;
+  background.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
   background.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
   wrap.addControl(background);
 
+  // 9 格热栏
   const hotbar = new GUI.Grid("hotbar");
-  hotbar.width = "522px";
-  hotbar.height = "58px";
+  hotbar.width = "342px";
+  hotbar.height = "38px";
   hotbar.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
   hotbar.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
   hotbar.top = -8;
   hotbar.addRowDefinition(1);
   for (let i = 0; i < 9; i += 1) hotbar.addColumnDefinition(1 / 9);
   for (let i = 0; i < 9; i += 1) {
-    const slot = pixelPanel(`slot-${i}`, 56, 56);
+    const slot = pixelPanel(`slot-${i}`, 36, 36);
     const weaponId = WEAPON_ORDER[i];
     slot.metadata = { weaponId };
-    slot.thickness = i === 0 ? 4 : 0;
+    slot.thickness = i === 0 ? 3 : 0;
     slot.color = i === 0 ? "#ffffff" : "transparent";
     slot.background = i === 0 ? "rgba(255, 255, 255, 0.08)" : "transparent";
     if (weaponId) {
       const image = new GUI.Image(`slot-icon-${i}`, WEAPON_CONFIG[weaponId].iconPath);
       image.stretch = GUI.Image.STRETCH_UNIFORM;
-      image.paddingTop = "8px";
-      image.paddingBottom = "8px";
-      image.paddingLeft = "8px";
-      image.paddingRight = "8px";
+      image.paddingTop = "4px";
+      image.paddingBottom = "4px";
+      image.paddingLeft = "4px";
+      image.paddingRight = "4px";
       slot.addControl(image);
       ui.weaponSlots.push(slot);
     }
     hotbar.addControl(slot, 0, i);
   }
-
-  const cooldownBack = new GUI.Rectangle("weapon-cooldown-back");
-  cooldownBack.width = "52px";
-  cooldownBack.height = "6px";
-  cooldownBack.left = -232;
-  cooldownBack.top = 27;
-  cooldownBack.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
-  cooldownBack.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_CENTER;
-  cooldownBack.background = "#162315";
-  cooldownBack.color = "#0b120a";
-  cooldownBack.thickness = 1;
-  ui.weaponCooldownFillEl.height = "4px";
-  ui.weaponCooldownFillEl.width = "52px";
-  ui.weaponCooldownFillEl.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-  ui.weaponCooldownFillEl.background = "#72e857";
-  ui.weaponCooldownFillEl.thickness = 0;
-  cooldownBack.addControl(ui.weaponCooldownFillEl);
-
   wrap.addControl(hotbar);
-  wrap.addControl(cooldownBack);
-  const reloadBack = new GUI.Rectangle("reload-back");
-  reloadBack.width = "214px";
-  reloadBack.height = "8px";
-  reloadBack.left = 154;
-  reloadBack.top = -35;
-  reloadBack.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
-  reloadBack.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-  reloadBack.background = "#162315";
-  reloadBack.color = "#0b120a";
-  reloadBack.thickness = 1;
-  ui.reloadFillEl.height = "6px";
-  ui.reloadFillEl.width = "0px";
-  ui.reloadFillEl.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-  ui.reloadFillEl.background = "#72e857";
-  ui.reloadFillEl.thickness = 0;
-  reloadBack.addControl(ui.reloadFillEl);
-  wrap.addControl(reloadBack);
   texture.addControl(wrap);
 }
 
@@ -495,15 +541,17 @@ function buildScopeOverlay(texture, ui) {
 }
 
 function buildTip(texture, ui, weaponLabMode = false) {
-  const tip = pixelPanel("tip", weaponLabMode ? 720 : 500, 38);
+  // 紧凑化提示条：缩小尺寸和字号，避免换行压住画面；文案适配 9 把武器（1-9 切枪）
+  const tip = pixelPanel("tip", weaponLabMode ? 520 : 460, 28);
   tip.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
   tip.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-  tip.top = -170;
-  // weaponLab 模式显示专属操作提示（含 Tab 锁定相机、T 清弹孔、G 放死靶、H 清死靶、B 敌人模式），且不加入 arenaHudControls
+  // hotbar 高 96px + 14px 间距，tip 底部对齐 top=-110 避免遮挡热栏
+  tip.top = -110;
+  // weaponLab 模式显示专属操作提示（含 Tab 背包、T 清弹孔、G 放死靶、H 清死靶、B 敌人模式），且不加入 arenaHudControls
   const tipText = weaponLabMode
-    ? "WASD 移动  Shift 跑步  空格跳跃  Tab 锁定相机  鼠标射击  R 换弹  1-5 切枪  T 清弹孔  G 放死靶  H 清死靶  B 敌人模式  V 动靶模式"
-    : "W A S D 移动   空格跳跃   鼠标射击   R 换弹   1-5 切枪";
-  const label = text(tipText, 16, "#f8f8f8");
+    ? "WASD 移动  Shift 跑步  Tab 背包  R 换弹  1-9 切枪  T/G/H/B/V 工具"
+    : "WASD 移动  空格跳跃  鼠标射击  R 换弹  1-9 切枪  Tab 背包";
+  const label = text(tipText, 14, "#f8f8f8");
   tip.addControl(label);
   texture.addControl(tip);
   if (!weaponLabMode) ui.arenaHudControls.push(tip);
@@ -626,4 +674,368 @@ function text(value, size, color, fontFamily = FONT_UI) {
   block.textWrapping = true;
   block.resizeToFit = false;
   return block;
+}
+
+// Tab 人物+背包面板：默认隐藏，按 Tab 切换可见性。
+// 布局：中央 880×520px，左侧 steve 预览 + 护甲槽占位，中部武器槽+武器详情，底部统计区。
+// 数据由 openInventory 接收 buildInventoryViewData 返回的结构填充，updateInventoryStats 在面板打开期间刷新统计。
+function buildInventoryPanel(texture, ui) {
+  const overlay = new GUI.Container("inventory-overlay");
+  overlay.width = "100%";
+  overlay.height = "100%";
+  overlay.background = "rgba(0, 0, 0, 0.55)";
+  overlay.zIndex = 100;
+
+  // 三列布局面板：左列角色预览+护甲槽 | 中列武器详情+3×3 武器槽 | 右列独立统计区
+  // 统计区有独立半透明底，不压在背包格子上
+  const panel = new GUI.Rectangle("inventory-panel");
+  panel.width = "960px";
+  panel.height = "560px";
+  panel.cornerRadius = 0;
+  panel.thickness = 4;
+  panel.color = "#151515";
+  panel.background = "rgba(20, 20, 20, 0.92)";
+  panel.shadowColor = "rgba(0, 0, 0, 0.6)";
+  panel.shadowOffsetY = 10;
+  overlay.addControl(panel);
+
+  // 极淡的 inventory.png 底纹（alpha=0.15），保留 Minecraft 像素感但不抢占注意力
+  const panelBg = new GUI.Image("inventory-panel-bg", ASSET_PATHS.inventory);
+  panelBg.width = "952px";
+  panelBg.height = "552px";
+  panelBg.stretch = GUI.Image.STRETCH_FILL;
+  panelBg.sourceLeft = 0;
+  panelBg.sourceTop = 0;
+  panelBg.sourceWidth = 176;
+  panelBg.sourceHeight = 166;
+  panelBg.alpha = 0.15;
+  panel.addControl(panelBg);
+
+  // 标题
+  const title = text("人物 · 背包", 24, "#ffffa0", FONT_TITLE);
+  title.height = "32px";
+  title.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+  title.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  title.top = "8px";
+  panel.addControl(title);
+
+  // 右上角关闭提示
+  const escHint = text("Tab / Esc 关闭", 14, "#d5d5d5");
+  escHint.width = "180px";
+  escHint.height = "24px";
+  escHint.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+  escHint.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  escHint.left = "-12px";
+  escHint.top = "12px";
+  escHint.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+  panel.addControl(escHint);
+
+  // ── 左列（240px）：角色预览 + 护甲槽 ──
+  // steve.png UV [8,8,16,32] 是 Minecraft 标准正面皮肤区域，120×240px 严格 1:2 纵横比完整显示
+  const playerPreview = new GUI.Image("inventory-player-preview", "assets/minecraft/entity/player/steve.png");
+  playerPreview.width = "120px";
+  playerPreview.height = "240px";
+  playerPreview.stretch = GUI.Image.STRETCH_UNIFORM;
+  playerPreview.sourceLeft = 8;
+  playerPreview.sourceTop = 8;
+  playerPreview.sourceWidth = 16;
+  playerPreview.sourceHeight = 32;
+  playerPreview.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+  playerPreview.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  playerPreview.left = "60px";
+  playerPreview.top = "60px";
+  panel.addControl(playerPreview);
+
+  // 护甲槽占位（4 个，项目无护甲系统，仅显示底纹）
+  const armorSlots = [];
+  for (let i = 0; i < 4; i += 1) {
+    const slot = new GUI.Image(`inventory-armor-${i}`, ASSET_PATHS.gui.armorBackdrop);
+    slot.width = "28px";
+    slot.height = "28px";
+    slot.stretch = GUI.Image.STRETCH_UNIFORM;
+    slot.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    slot.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    slot.left = `${60 + i * 34}px`;
+    slot.top = "320px";
+    slot.alpha = 0.7;
+    panel.addControl(slot);
+    armorSlots.push(slot);
+  }
+
+  // ── 中列（360px，left=300）：武器详情 + 3×3 武器槽 ──
+  // 武器详情区（武器名 + 5 行参数）
+  const weaponDetailStack = new GUI.StackPanel("inventory-weapon-detail");
+  weaponDetailStack.width = "320px";
+  weaponDetailStack.height = "200px";
+  weaponDetailStack.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+  weaponDetailStack.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  weaponDetailStack.left = "300px";
+  weaponDetailStack.top = "60px";
+  const weaponDetailEls = {
+    name: text("Glock 17", 22, "#ffffa0", FONT_TITLE),
+    magazine: text("弹匣：17", 16, "#ffffff", FONT_UI),
+    fireRate: text("射速：6.7/s", 16, "#ffffff", FONT_UI),
+    damage: text("伤害：1", 16, "#ffffff", FONT_UI),
+    recoil: text("后坐力：0.74", 16, "#ffffff", FONT_UI),
+    fireMode: text("模式：半自动", 16, "#ffffff", FONT_UI),
+  };
+  weaponDetailEls.name.height = "32px";
+  weaponDetailEls.magazine.height = "26px";
+  weaponDetailEls.fireRate.height = "26px";
+  weaponDetailEls.damage.height = "26px";
+  weaponDetailEls.recoil.height = "26px";
+  weaponDetailEls.fireMode.height = "26px";
+  weaponDetailStack.addControl(weaponDetailEls.name);
+  weaponDetailStack.addControl(weaponDetailEls.magazine);
+  weaponDetailStack.addControl(weaponDetailEls.fireRate);
+  weaponDetailStack.addControl(weaponDetailEls.damage);
+  weaponDetailStack.addControl(weaponDetailEls.recoil);
+  weaponDetailStack.addControl(weaponDetailEls.fireMode);
+  panel.addControl(weaponDetailStack);
+
+  // 武器槽 3×3 Grid：动态适配 WEAPON_ORDER.length（当前 9 把），不写死 5
+  // 每个 slot 绑定 onPointerClickObservable，通过 ui.onWeaponSlotClick 回调切枪
+  const slotCount = WEAPON_ORDER.length;
+  const cols = 3;
+  const rows = Math.ceil(slotCount / cols);
+  const weaponSlotsWrap = new GUI.Grid("inventory-weapon-slots");
+  weaponSlotsWrap.width = `${cols * 52}px`;
+  weaponSlotsWrap.height = `${rows * 52}px`;
+  weaponSlotsWrap.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+  weaponSlotsWrap.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  weaponSlotsWrap.left = "300px";
+  weaponSlotsWrap.top = "290px";
+  for (let r = 0; r < rows; r += 1) weaponSlotsWrap.addRowDefinition(1 / rows);
+  for (let c = 0; c < cols; c += 1) weaponSlotsWrap.addColumnDefinition(1 / cols);
+  const inventoryWeaponSlots = [];
+  for (let i = 0; i < slotCount; i += 1) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const slot = pixelPanel(`inv-slot-${i}`, 44, 44);
+    const weaponId = WEAPON_ORDER[i];
+    slot.metadata = { weaponId, index: i };
+    slot.thickness = i === 0 ? 3 : 0;
+    slot.color = i === 0 ? "#ffffff" : "transparent";
+    slot.background = i === 0 ? "rgba(255, 255, 255, 0.08)" : "transparent";
+    if (weaponId) {
+      const image = new GUI.Image(`inv-slot-icon-${i}`, WEAPON_CONFIG[weaponId].iconPath);
+      image.stretch = GUI.Image.STRETCH_UNIFORM;
+      image.paddingTop = "6px";
+      image.paddingBottom = "6px";
+      image.paddingLeft = "6px";
+      image.paddingRight = "6px";
+      slot.addControl(image);
+    }
+    // 点击切枪：通过 ui.onWeaponSlotClick 回调通知 main.js
+    slot.onPointerClickObservable.add(() => {
+      if (ui.onWeaponSlotClick) ui.onWeaponSlotClick(i);
+    });
+    inventoryWeaponSlots.push(slot);
+    weaponSlotsWrap.addControl(slot, r, c);
+  }
+  panel.addControl(weaponSlotsWrap);
+
+  // ── 右列（320px，left=660）：独立统计区，半透明底不压背包格子 ──
+  const statsContainer = new GUI.Rectangle("inventory-stats-container");
+  statsContainer.width = "280px";
+  statsContainer.height = "440px";
+  statsContainer.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+  statsContainer.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  statsContainer.left = "660px";
+  statsContainer.top = "60px";
+  statsContainer.thickness = 1;
+  statsContainer.color = "rgba(255, 255, 255, 0.15)";
+  statsContainer.background = "rgba(0, 0, 0, 0.35)";
+  panel.addControl(statsContainer);
+
+  // 统计区内部 StackPanel：3 个区块垂直排列
+  const statsStack = new GUI.StackPanel("inventory-stats");
+  statsStack.width = "260px";
+  statsStack.height = "420px";
+  statsStack.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+  statsStack.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
+  statsStack.top = "10px";
+  statsContainer.addControl(statsStack);
+
+  // 弹匣层（weaponLab 模式显示，靶场模式隐藏）
+  const magSection = new GUI.StackPanel("inventory-mag-section");
+  magSection.width = "260px";
+  magSection.height = "130px";
+  magSection.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+  const magTitle = text("弹匣层", 16, "#d5d5d5", FONT_UI);
+  magTitle.height = "22px";
+  magSection.addControl(magTitle);
+  const magLines = [];
+  const magLabels = ["射击", "命中", "命中率", "DPS", "射速"];
+  for (let i = 0; i < magLabels.length; i += 1) {
+    const line = text(`${magLabels[i]}：0`, 14, "#ffffff", FONT_UI);
+    line.height = "20px";
+    magSection.addControl(line);
+    magLines.push(line);
+  }
+  statsStack.addControl(magSection);
+
+  // 会话层（weaponLab 模式显示，靶场模式隐藏）
+  const sessSection = new GUI.StackPanel("inventory-sess-section");
+  sessSection.width = "260px";
+  sessSection.height = "110px";
+  sessSection.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+  const sessTitle = text("会话层", 16, "#d5d5d5", FONT_UI);
+  sessTitle.height = "22px";
+  sessSection.addControl(sessTitle);
+  const sessLines = [];
+  const sessLabels = ["累计射击", "累计命中", "累计伤害", "会话DPS"];
+  for (let i = 0; i < sessLabels.length; i += 1) {
+    const line = text(`${sessLabels[i]}：0`, 14, "#ffffff", FONT_UI);
+    line.height = "20px";
+    sessSection.addControl(line);
+    sessLines.push(line);
+  }
+  statsStack.addControl(sessSection);
+
+  // 当前模式区块（weaponLab 模式显示死靶/敌人/动靶，靶场模式显示得分信息）
+  const modeSection = new GUI.StackPanel("inventory-mode-section");
+  modeSection.width = "260px";
+  modeSection.height = "140px";
+  modeSection.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+  const modeTitle = text("统计", 16, "#d5d5d5", FONT_UI);
+  modeTitle.height = "22px";
+  modeSection.addControl(modeTitle);
+  const modeLines = [];
+  for (let i = 0; i < 4; i += 1) {
+    const line = text("", 14, "#ffffff", FONT_UI);
+    line.height = "20px";
+    modeSection.addControl(line);
+    modeLines.push(line);
+  }
+  statsStack.addControl(modeSection);
+
+  ui.inventoryOverlay = overlay;
+  ui.inventoryPanel = panel;
+  ui.inventoryWeaponSlots = inventoryWeaponSlots;
+  ui.inventoryWeaponDetailEls = weaponDetailEls;
+  ui.inventoryStatsEls = {
+    magSection,
+    magLines,
+    sessSection,
+    sessLines,
+    modeSection,
+    modeTitle,
+    modeLines,
+  };
+  ui.inventoryContext = { isWeaponLab: false };
+  texture.addControl(overlay);
+}
+
+// 刷新武器详情文本（武器名/弹匣/射速/伤害/后坐力/模式）
+// 从 openInventory 提取为独立函数，供 updateInventoryPanel 每帧复用
+function applyWeaponDetail(ui, w) {
+  ui.inventoryWeaponDetailEls.name.text = w.label;
+  ui.inventoryWeaponDetailEls.magazine.text = `弹匣：${w.magazineSize}`;
+  ui.inventoryWeaponDetailEls.fireRate.text = `射速：${w.fireRate}/s`;
+  ui.inventoryWeaponDetailEls.damage.text = `伤害：${w.bodyDamage}`;
+  ui.inventoryWeaponDetailEls.recoil.text = `后坐力：${w.recoil}`;
+  ui.inventoryWeaponDetailEls.fireMode.text = `模式：${w.fireMode}`;
+}
+
+// 刷新面板武器槽选中态：当前武器高亮，其余透明
+function applySlotSelection(ui, weaponId) {
+  ui.inventoryWeaponSlots.forEach((slot) => {
+    const selected = slot.metadata?.weaponId === weaponId;
+    slot.thickness = selected ? 3 : 0;
+    slot.color = selected ? "#ffffff" : "transparent";
+    slot.background = selected ? "rgba(255, 255, 255, 0.08)" : "transparent";
+  });
+}
+
+// 面板打开期间每帧调用：同步刷新武器详情 + 选中态 + 统计。
+// 解决面板打开时按 1-9 切枪后面板内武器名/详情/选中框不同步的问题。
+export function updateInventoryPanel(ui, viewData) {
+  if (!ui.inventoryOverlay?.isVisible) return;
+  applyWeaponDetail(ui, viewData.currentWeapon);
+  applySlotSelection(ui, viewData.currentWeapon.id);
+  ui.inventoryContext = { ...ui.inventoryContext, currentWeaponId: viewData.currentWeapon.id };
+  updateInventoryStats(ui, viewData);
+}
+
+// 把 buildInventoryViewData 返回的数据填到面板控件上，并显示面板。
+// viewData: buildInventoryViewData(state, weaponLab, enemyState) 的返回值
+// isWeaponLab: 是否为 weaponLab 模式（决定统计区块显示哪些层）
+export function openInventory(ui, viewData, isWeaponLab) {
+  if (!ui.inventoryOverlay) return;
+  ui.inventoryContext = { isWeaponLab: Boolean(isWeaponLab), currentWeaponId: viewData.currentWeapon.id };
+  updateInventoryPanel(ui, viewData);
+  ui.inventoryOverlay.isVisible = true;
+}
+
+export function closeInventory(ui) {
+  if (!ui.inventoryOverlay) return;
+  ui.inventoryOverlay.isVisible = false;
+}
+
+export function isInventoryOpen(ui) {
+  return Boolean(ui.inventoryOverlay?.isVisible);
+}
+
+// 在面板打开期间每帧调用：根据 viewData 刷新统计区块文本。
+// weaponLab 模式：弹匣层 + 会话层 + 当前模式区块（死靶/敌人/动靶）
+// 靶场模式：弹匣层和会话层隐藏，当前模式区块显示得分信息
+export function updateInventoryStats(ui, viewData) {
+  if (!ui.inventoryStatsEls) return;
+  const { magSection, magLines, sessSection, sessLines, modeSection, modeTitle, modeLines } = ui.inventoryStatsEls;
+  const isWeaponLab = ui.inventoryContext?.isWeaponLab;
+  if (isWeaponLab && viewData.stats) {
+    magSection.isVisible = true;
+    sessSection.isVisible = true;
+    const magLabels = ["射击", "命中", "命中率", "DPS", "射速"];
+    const magValues = [
+      viewData.stats.magazine.shots,
+      viewData.stats.magazine.hits,
+      `${viewData.stats.magazine.hitRate}%`,
+      viewData.stats.magazine.dps,
+      viewData.stats.magazine.fireRate,
+    ];
+    magLines.forEach((line, i) => { line.text = `${magLabels[i]}：${magValues[i]}`; });
+    const sessLabels = ["累计射击", "累计命中", "累计伤害", "会话DPS"];
+    const sessValues = [
+      viewData.stats.session.shots,
+      viewData.stats.session.hits,
+      viewData.stats.session.damage,
+      viewData.stats.session.dps,
+    ];
+    sessLines.forEach((line, i) => { line.text = `${sessLabels[i]}：${sessValues[i]}`; });
+    // 当前模式区块：enemy 显示敌人信息，moving 显示动靶信息，其他显示死靶信息
+    const mode = viewData.stats.mode;
+    if (mode === "enemy") {
+      modeTitle.text = "敌人";
+      const es = viewData.stats.enemyState;
+      const timeText = es?.result === "victory" ? "存活！"
+        : es?.result === "defeat" ? "阵亡！"
+        : `${Math.ceil(es?.timeLeft ?? 0)}s`;
+      const labels = ["时间", "生命", "击杀", "爆头率"];
+      const values = [timeText, `${es?.hp ?? 0}/${es?.playerMaxHP ?? 5}`, viewData.stats.enemy.kills, `${viewData.stats.enemy.headshotRate}%`];
+      modeLines.forEach((line, i) => { line.text = `${labels[i]}：${values[i]}`; });
+    } else if (mode === "moving") {
+      modeTitle.text = "动靶";
+      const labels = ["动靶数", "爆头", "身体", "爆头率"];
+      const values = [viewData.stats.displayCount, viewData.stats.moving.headshots, viewData.stats.moving.bodyshots, `${viewData.stats.moving.headshotRate}%`];
+      modeLines.forEach((line, i) => { line.text = `${labels[i]}：${values[i]}`; });
+    } else {
+      modeTitle.text = "死靶";
+      const labels = ["死靶数", "爆头", "身体", "爆头率"];
+      const values = [viewData.stats.displayCount, viewData.stats.dummy.headshots, viewData.stats.dummy.bodyshots, `${viewData.stats.dummy.headshotRate}%`];
+      modeLines.forEach((line, i) => { line.text = `${labels[i]}：${values[i]}`; });
+    }
+  } else {
+    // 靶场模式：隐藏弹匣层和会话层，模式区块显示得分信息
+    magSection.isVisible = false;
+    sessSection.isVisible = false;
+    modeTitle.text = "本轮战况";
+    if (viewData.rangeState) {
+      const r = viewData.rangeState;
+      const labels = ["分数", "命中", "连击", "时间"];
+      const values = [r.score, r.hits, `x${r.combo}`, `${r.timeLeft}s`];
+      modeLines.forEach((line, i) => { line.text = `${labels[i]}：${values[i]}`; });
+    }
+  }
 }

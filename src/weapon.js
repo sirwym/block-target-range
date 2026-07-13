@@ -72,13 +72,23 @@ export function fireWeapon(state, weapon) {
 export function startReload(state, weapon) {
   if (!weapon || state.reloading) return { state, started: false };
   if ((state.ammo[weapon.id] ?? 0) >= weapon.magazineSize) return { state, started: false };
+
+  // 区分空仓换弹（弹匣打空）和战术换弹（弹匣有余弹）。
+  // 两者的时长和声音不同：空仓用 reloadEmpty，战术用 reloadTactical。
+  // 时长来自 V2 data.json 的 cooldown.empty / cooldown.tactical。
+  const isEmpty = (state.ammo[weapon.id] ?? 0) === 0;
+  const reloadConfig = isEmpty ? weapon.reloadEmpty : weapon.reloadTactical;
+  const reloadDuration = reloadConfig?.duration ?? weapon.reloadDuration;
+
   return {
     started: true,
+    isEmpty,
+    reloadDuration,
     state: {
       ...state,
       reloading: true,
-      reloadTimer: weapon.reloadDuration,
-      reloadDuration: weapon.reloadDuration,
+      reloadTimer: reloadDuration,
+      reloadDuration,
       semiAutoLocked: false,
     },
   };

@@ -28,8 +28,8 @@ test("Babylon enemy skin boxes and combat picking stay aligned", () => {
   });
   assert.equal(target.parts.head.metadata.hitType, "head");
   assert.equal(target.parts.body.metadata.hitType, "body");
-  assert.equal(target.group.metadata.maxHealth, 3);
-  assert.equal(target.group.metadata.health, 3);
+  assert.equal(target.group.metadata.maxHealth, 100);
+  assert.equal(target.group.metadata.health, 100);
 
   refreshWorldMatrices(scene);
   const headPick = pickFromFront(scene, target.parts.head.getAbsolutePosition());

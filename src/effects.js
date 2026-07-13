@@ -177,6 +177,68 @@ export function createBreakParticles(scene, effects, position, kind) {
   }
 }
 
+// RPG7 爆炸视觉：中心闪光平面 + 24 个橙黄粒子球面扩散 + 8 个深灰烟雾
+// 三层叠加营造爆炸观感，全部 push 到 effects[] 由 updateTemporaryMeshes 统一更新
+export function createExplosionEffect(scene, effects, position) {
+  // 中心闪光：平面 billboard 朝向相机，短生命周期高亮
+  const flash = BABYLON.MeshBuilder.CreatePlane("explosion-flash", { size: 0.8 }, scene);
+  const flashMat = colorMaterial(scene, "#ffcc44", { alpha: 0.9, emissive: BABYLON.Color3.FromHexString("#ffcc44") });
+  flash.material = flashMat;
+  flash.position = position.clone();
+  flash.isPickable = false;
+  flash.renderingGroupId = 2;
+  effects.push({
+    mesh: flash,
+    velocity: new BABYLON.Vector3(0, 0, 0),
+    life: 0.18,
+    kind: "particle",
+    maxLife: 0.18,
+  });
+
+  // 粒子扩散：24 个方块球面向外飞溅，橙黄白交替
+  const sparkColors = ["#ff8c1a", "#ffd24a", "#ffffff"];
+  for (let i = 0; i < 24; i += 1) {
+    const size = randFloat(0.15, 0.3);
+    const mesh = BABYLON.MeshBuilder.CreateBox("explosion-spark", { size }, scene);
+    mesh.material = colorMaterial(scene, sparkColors[i % 3]);
+    mesh.position = position.clone();
+    mesh.isPickable = false;
+    mesh.renderingGroupId = 2;
+    // 球面均匀分布方向
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(Math.random() * 2 - 1);
+    const speed = randFloat(3, 6);
+    effects.push({
+      mesh,
+      velocity: new BABYLON.Vector3(
+        Math.sin(phi) * Math.cos(theta) * speed,
+        Math.sin(phi) * Math.sin(theta) * speed + 1,
+        Math.cos(phi) * speed,
+      ),
+      life: 0.6,
+      kind: "particle",
+      maxLife: 0.6,
+    });
+  }
+
+  // 烟雾：8 个深灰方块向上+向外飘，重力减半模拟浮力
+  for (let i = 0; i < 8; i += 1) {
+    const size = randFloat(0.2, 0.35);
+    const mesh = BABYLON.MeshBuilder.CreateBox("explosion-smoke", { size }, scene);
+    mesh.material = colorMaterial(scene, "#3a3a3a", { alpha: 0.7 });
+    mesh.position = position.clone();
+    mesh.isPickable = false;
+    mesh.renderingGroupId = 2;
+    effects.push({
+      mesh,
+      velocity: new BABYLON.Vector3(randSpread(2), randFloat(1.5, 3.5), randSpread(2)),
+      life: 0.9,
+      kind: "smoke",
+      maxLife: 0.9,
+    });
+  }
+}
+
 export function createFloatingText(ui, scene, text, position, critical = false) {
   if (typeof ui.addFloatingText !== "function") return null;
   return ui.addFloatingText(text, position, critical, scene);

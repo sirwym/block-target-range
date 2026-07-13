@@ -131,21 +131,163 @@ test.describe("武器试验场 weaponLab", () => {
     expect(errors).toEqual([]);
   });
 
-  test("Tab 键锁定相机并暴露 cameraLocked 状态", async ({ page }) => {
+  test("Tab 键打开 inventory 面板并暂停游戏", async ({ page }) => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
-    // 初始状态未锁定
+    // 初始状态：面板关闭、未暂停
     const before = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
-    expect(before.weaponLab.cameraLocked).toBe(false);
-    expect(before.weaponLab.playerPosition).toBeTruthy();
-    // 按下 Tab 锁定
-    await page.keyboard.down("Tab");
-    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.cameraLocked === true);
-    // 松开 Tab 解锁
-    await page.keyboard.up("Tab");
-    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.cameraLocked === false);
+    expect(before.inventoryOpen).toBe(false);
+    expect(before.paused).toBe(false);
+    // 按 Tab 打开面板
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
+    const opened = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
+    expect(opened.inventoryOpen).toBe(true);
+    expect(opened.paused).toBe(true);
+    // 再按 Tab 关闭面板
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === false);
+    const closed = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
+    expect(closed.inventoryOpen).toBe(false);
+    expect(closed.paused).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  test("Tab 面板打开时 weaponLab 统计保持且关闭后继续累加", async ({ page }) => {
+    const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    // 先射击累加统计
+    await page.evaluate(() => window.__blockTargetRangeDebug.shoot());
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.stats?.magazine?.shots > 0);
+    const beforeShots = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot().weaponLab.stats.magazine.shots);
+    expect(beforeShots).toBeGreaterThan(0);
+    // 按 Tab 打开面板，统计应保持不变
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
+    const openedShots = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot().weaponLab.stats.magazine.shots);
+    expect(openedShots).toBe(beforeShots);
+    // 关闭面板后继续射击，统计应累加
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === false);
+    await page.evaluate(() => window.__blockTargetRangeDebug.shoot());
+    await page.waitForFunction((bs) => window.__blockTargetRangeDebug.snapshot().weaponLab?.stats?.magazine?.shots > bs, beforeShots);
+    const afterShots = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot().weaponLab.stats.magazine.shots);
+    expect(afterShots).toBeGreaterThan(beforeShots);
+    expect(errors).toEqual([]);
+  });
+
+  test("Tab 面板打开时 pointerdown 不触发射击", async ({ page }) => {
+    const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    // 先射击一发生成弹孔
+    await page.evaluate(() => window.__blockTargetRangeDebug.shoot());
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.bulletHoleCount > 0);
+    const beforeCount = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot().weaponLab.bulletHoleCount);
+    // 按 Tab 打开面板
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
+    // 模拟 pointerdown 事件：面板打开时应被 isInventoryOpen 守卫拦截，不触发射击
+    await page.evaluate(() => {
+      const canvas = document.querySelector("#game");
+      canvas.dispatchEvent(new MouseEvent("pointerdown", { button: 0, bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    const afterCount = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot().weaponLab.bulletHoleCount);
+    expect(afterCount).toBe(beforeCount);
+    // 关闭面板
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === false);
+    expect(errors).toEqual([]);
+  });
+
+  test("Esc 关闭 inventory 面板", async ({ page }) => {
+    const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    // 按 Tab 打开面板
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
+    const opened = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
+    expect(opened.inventoryOpen).toBe(true);
+    expect(opened.paused).toBe(true);
+    // 按 Esc 关闭面板
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === false);
+    const closed = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
+    expect(closed.inventoryOpen).toBe(false);
+    expect(closed.paused).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  test("Tab 面板打开时按数字键切枪，面板 current weapon 同步变化", async ({ page }) => {
+    const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
+    // 初始 glock17，面板内 current weapon 应与底层一致
+    const before = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
+    expect(before.inventoryCurrentWeaponId).toBe("glock17");
+    expect(before.currentWeaponId).toBe("glock17");
+    // 按 2 切到 m4，面板内 current weapon 应同步刷新
+    await page.keyboard.press("Digit2");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryCurrentWeaponId === "m4");
     const after = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
-    expect(after.weaponLab.cameraLocked).toBe(false);
+    expect(after.inventoryCurrentWeaponId).toBe("m4");
+    expect(after.currentWeaponId).toBe("m4");
+    expect(errors).toEqual([]);
+  });
+
+  test("点击 Tab 面板中的武器槽可以切枪", async ({ page }) => {
+    const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
+    // 面板 960×560px 居中于 1280×720 视口，左上角约 (160, 80)
+    // 中列武器槽 Grid 起始 left=300 top=290（相对面板），3×3 布局每槽 44×44px
+    // 第 2 个槽（m4, index=1）在 (0,1) 位置，中心约 (160+300+52+22, 80+290+22) = (534, 392)
+    // Babylon GUI 坐标可能微偏，用近似中心点击并设 2s 超时
+    await page.mouse.click(534, 392);
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().currentWeaponId === "m4", { timeout: 2000 });
+    const after = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
+    expect(after.currentWeaponId).toBe("m4");
+    expect(after.inventoryCurrentWeaponId).toBe("m4");
+    expect(errors).toEqual([]);
+  });
+
+  test("长按 Tab 或重复 keydown 不会反复闪烁开关", async ({ page }) => {
+    const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    // 先按 Tab 打开面板
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
+    // 派发 repeat=true 的 Tab keydown，面板应保持打开不关闭
+    await page.evaluate(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { code: "Tab", repeat: true, bubbles: true }));
+    });
+    await page.waitForTimeout(200);
+    const stillOpen = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen);
+    expect(stillOpen).toBe(true);
+    // 关闭面板
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === false);
+    // 面板关闭后 repeat keydown 不应重新打开
+    await page.evaluate(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { code: "Tab", repeat: true, bubbles: true }));
+    });
+    await page.waitForTimeout(200);
+    const stillClosed = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen);
+    expect(stillClosed).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  test("Tab 面板在 1280×720 下无重叠无截断截图", async ({ page }) => {
+    const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: "test-results/weaponLab-inventory-panel-1280x720.png", fullPage: false });
+    // 截图供人工检查：面板三列布局无重叠、统计区不压背包格子、人物预览完整
     expect(errors).toEqual([]);
   });
 
@@ -206,7 +348,7 @@ test.describe("武器试验场 weaponLab", () => {
     expect(before.weaponLab.dummiesCount).toBe(0);
     expect(before.weaponLab.mode).toBe("idle");
     // 通过调试钩子在 (0, -6) 放假人（绕过 ray pick，专注验证 spawnDummy 本身）
-    await page.evaluate(() => window.__blockTargetRangeDebug.spawnDummyAt(0, -6));
+    await page.evaluate(() => { window.__blockTargetRangeDebug.spawnDummyAt(0, -6); });
     const after = await page.waitForFunction(() => {
       const s = window.__blockTargetRangeDebug.snapshot();
       return s.weaponLab?.dummiesCount === 1 ? s : null;
@@ -223,7 +365,7 @@ test.describe("武器试验场 weaponLab", () => {
     await waitForWeaponReady(page);
     // weaponLab 相机从 (0,2.25,12) 看向 (0,4,-12)，射线随 z 减小而 y 升高。
     // z=6 时射线 y≈2.69，命中 head hitbox（世界 y 1.87~2.97）；z=-6 时 y≈3.56 高于头部，会脱靶。
-    await page.evaluate(() => window.__blockTargetRangeDebug.spawnDummyAt(0, 6));
+    await page.evaluate(() => { window.__blockTargetRangeDebug.spawnDummyAt(0, 6); });
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.dummiesCount === 1);
     // 等一帧让世界矩阵更新，确保 pickWithRay 能命中
     await page.waitForTimeout(150);
@@ -241,8 +383,11 @@ test.describe("武器试验场 weaponLab", () => {
   test("死靶被击杀后 3 秒原地重生", async ({ page }) => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
-    // z=6 时射线命中 head hitbox，headshot damage=maxHealth=3，一击必杀
-    await page.evaluate(() => window.__blockTargetRangeDebug.spawnDummyAt(0, 6));
+    // 切到 m95：爆头伤害 188 > 100HP，一击必杀（Glock17 爆头仅 9，需 12 发）
+    await page.evaluate(() => window.__blockTargetRangeDebug.selectWeapon("m95"));
+    await waitForWeaponReady(page);
+    // z=6 时射线命中 head hitbox
+    await page.evaluate(() => { window.__blockTargetRangeDebug.spawnDummyAt(0, 6); });
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.aliveDummies === 1);
     await page.waitForTimeout(150);
     const beforeTotal = await page.evaluate(() => {
@@ -273,8 +418,8 @@ test.describe("武器试验场 weaponLab", () => {
   test("H 键清除所有死靶", async ({ page }) => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
-    await page.evaluate(() => window.__blockTargetRangeDebug.spawnDummyAt(0, -6));
-    await page.evaluate(() => window.__blockTargetRangeDebug.spawnDummyAt(2, -8));
+    await page.evaluate(() => { window.__blockTargetRangeDebug.spawnDummyAt(0, -6); });
+    await page.evaluate(() => { window.__blockTargetRangeDebug.spawnDummyAt(2, -8); });
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.dummiesCount === 2);
     // 按 H 键清除
     await page.keyboard.press("KeyH");
@@ -302,7 +447,7 @@ test.describe("武器试验场 weaponLab", () => {
     expect(afterSnap.weaponLab.mode).toBe("enemy");
     // enemyTimeLeft 随每帧 delta 递减，waitForFunction 解析时可能已 tick 一帧（59.95），用 round 容差
     expect(Math.round(afterSnap.weaponLab.enemyTimeLeft)).toBe(60);
-    expect(afterSnap.weaponLab.enemyHP).toBe(5);
+    expect(afterSnap.weaponLab.enemyHP).toBe(200);
     expect(afterSnap.weaponLab.enemyResult).toBe(null);
     expect(afterSnap.weaponLab.enemiesCount).toBe(0);
     expect(errors).toEqual([]);
@@ -351,12 +496,12 @@ test.describe("武器试验场 weaponLab", () => {
     await page.evaluate(() => window.__blockTargetRangeDebug.startEnemyMode());
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.enemiesCount > 0, { timeout: 3000 });
     const before = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
-    expect(before.weaponLab.enemyHP).toBe(5);
+    expect(before.weaponLab.enemyHP).toBe(200);
     // 瞬移所有敌人到抵达位置，等一帧让 update 检测到并扣血
     await page.evaluate(() => window.__blockTargetRangeDebug.advanceEnemiesToGoal());
     await page.waitForTimeout(200);
     const after = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
-    expect(after.weaponLab.enemyHP).toBeLessThan(5);
+    expect(after.weaponLab.enemyHP).toBeLessThan(200);
     expect(errors).toEqual([]);
   });
 
@@ -364,7 +509,7 @@ test.describe("武器试验场 weaponLab", () => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
     await page.evaluate(() => window.__blockTargetRangeDebug.startEnemyMode());
-    // 连续瞬移敌人到抵达位置，直到 HP 归零（5 HP = 5 次扣血）
+    // 连续瞬移敌人到抵达位置，直到 HP 归零（200 HP / 40 damagePerReach = 5 次扣血）
     for (let i = 0; i < 6; i += 1) {
       // 等待敌人刷出
       await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.enemiesCount > 0, { timeout: 3000 });
@@ -414,33 +559,58 @@ test.describe("武器试验场 weaponLab", () => {
     expect(errors).toEqual([]);
   });
 
-  test("动靶在固定 z 平面水平振荡", async ({ page }) => {
+  test("动靶分配 3 路线并按路线运动", async ({ page }) => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
     await page.evaluate(() => window.__blockTargetRangeDebug.startMovingMode());
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.movingTargetsCount === 3);
-    // 采样 t1 位置
+    // 等 500ms 让振荡推进
+    await page.waitForTimeout(500);
+    const positions = await page.evaluate(() => window.__blockTargetRangeDebug.getMovingTargetPositions());
+    // 应有 3 个靶，route 分别为 horizontal/circular/pendulum
+    const routes = positions.map((p) => p.route).sort();
+    expect(routes).toEqual(["circular", "horizontal", "pendulum"]);
+    // horizontal 路线靶 z 固定为 6，x 在 [-7, 7]
+    const h = positions.find((p) => p.route === "horizontal");
+    expect(h.z).toBe(6);
+    expect(Math.abs(h.x)).toBeLessThanOrEqual(7);
+    // circular 路线靶距中心 (0,6) 的半径 ≈ 4
+    const c = positions.find((p) => p.route === "circular");
+    const cr = Math.hypot(c.x, c.z - 6);
+    expect(Math.abs(cr - 4)).toBeLessThan(0.5);
+    // pendulum 路线靶 z 在 [6, 11] 内，x ≈ 0
+    const pend = positions.find((p) => p.route === "pendulum");
+    expect(pend.z).toBeGreaterThanOrEqual(6);
+    expect(pend.z).toBeLessThanOrEqual(11);
+    expect(Math.abs(pend.x)).toBeLessThan(0.5);
+    expect(errors).toEqual([]);
+  });
+
+  test("动靶水平路线 x 振荡", async ({ page }) => {
+    const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    await page.evaluate(() => window.__blockTargetRangeDebug.startMovingMode());
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.movingTargetsCount === 3);
+    // 采样 t1 位置（只看 horizontal 路线靶）
     const pos1 = await page.evaluate(() => window.__blockTargetRangeDebug.getMovingTargetPositions());
     // 等 500ms 让振荡推进
     await page.waitForTimeout(500);
     // 采样 t2 位置
     const pos2 = await page.evaluate(() => window.__blockTargetRangeDebug.getMovingTargetPositions());
-    // 所有动靶 z 应固定在 zPosition=6（不随时间变化）
-    for (const p of pos1) {
-      expect(p.z).toBe(6);
-      expect(p.dead).toBe(false);
-    }
-    for (const p of pos2) {
-      expect(p.z).toBe(6);
-    }
-    // 至少有一个动靶的 x 在 t1→t2 间发生变化（验证振荡）
-    const xChanged = pos2.some((p, i) => Math.abs(p.x - pos1[i].x) > 0.01);
-    expect(xChanged).toBe(true);
+    const h1 = pos1.find((p) => p.route === "horizontal");
+    const h2 = pos2.find((p) => p.route === "horizontal");
+    // horizontal 靶 z 固定，x 在 t1→t2 间应变化
+    expect(h1.z).toBe(6);
+    expect(h2.z).toBe(6);
+    expect(Math.abs(h2.x - h1.x)).toBeGreaterThan(0.01);
     expect(errors).toEqual([]);
   });
 
   test("射击动靶累加 movingKills 或 movingHeadshots", async ({ page }) => {
     const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    // 切到 m95：爆头伤害 188 > 100HP，一击必杀（Glock17 爆头仅 9，需 12 发）
+    await page.evaluate(() => window.__blockTargetRangeDebug.selectWeapon("m95"));
     await waitForWeaponReady(page);
     await page.evaluate(() => window.__blockTargetRangeDebug.startMovingMode());
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.movingTargetsCount === 3);
@@ -450,7 +620,7 @@ test.describe("武器试验场 weaponLab", () => {
     await page.waitForTimeout(150);
     const before = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
     const totalBefore = before.weaponLab.movingKills + before.weaponLab.movingHeadshots;
-    // 开火（z=6 时射线命中 head hitbox，headshot damage=maxHealth=3，一击必杀）
+    // 开火（z=6 时射线命中 head hitbox，m95 爆头 188 > 100HP 一击必杀）
     await page.evaluate(() => window.__blockTargetRangeDebug.shoot());
     await page.waitForFunction((bt) => {
       const s = window.__blockTargetRangeDebug.snapshot();
@@ -465,6 +635,9 @@ test.describe("武器试验场 weaponLab", () => {
 
   test("击杀动靶后 0.5s 重生", async ({ page }) => {
     const errors = await openWeaponLab(page);
+    await waitForWeaponReady(page);
+    // 切到 m95：爆头伤害 188 > 100HP，一击必杀（Glock17 爆头仅 9，需 12 发）
+    await page.evaluate(() => window.__blockTargetRangeDebug.selectWeapon("m95"));
     await waitForWeaponReady(page);
     await page.evaluate(() => window.__blockTargetRangeDebug.startMovingMode());
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.aliveMovingTargets === 3);

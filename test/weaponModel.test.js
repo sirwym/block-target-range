@@ -3,10 +3,22 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import * as BABYLON from "@babylonjs/core";
-import { buildFirstPersonBlockbenchMesh, buildBlockbenchMesh, P90_MATERIAL_COLORS } from "../src/weaponModel.js";
+import { buildFirstPersonBlockbenchMesh, buildBlockbenchMesh, P90_MATERIAL_COLORS, updateWeaponModel } from "../src/weaponModel.js";
 
 const MODEL_PATH = path.resolve("public/assets/tac/models/p90/p90_model.json");
 const GLOCK17_MODEL_PATH = path.resolve("public/assets/tac/models/glock17/glock17.json");
+
+// 测试用 modelConfig（提前定义避免 TDZ，多个测试复用）
+const TEST_MODEL_CONFIG = {
+  position: [0.5, -0.4, 1.2],
+  rotation: [-0.08, -0.25, 0.02],
+  scaling: 1.0,
+  muzzleLocalPosition: [0, 0, 0.5],
+  handAnchors: {
+    rightHand: [0.15, -0.32, 0.1],
+    leftHand: [0.0, -0.28, 0.35],
+  },
+};
 
 function loadModel() {
   const raw = fs.readFileSync(MODEL_PATH, "utf8");
@@ -34,8 +46,11 @@ test("P90 Blockbench conversion creates pivot nodes for rotated elements", () =>
   const scene = new BABYLON.Scene(engine);
   const root = new BABYLON.TransformNode("root", scene);
 
-  const partCount = buildFirstPersonBlockbenchMesh(model, scene, root, "p90");
-  assert.equal(partCount, model.elements.length, "returns element count");
+  const result = buildFirstPersonBlockbenchMesh(model, scene, root, "p90");
+  assert.equal(result.partCount, model.elements.length, "returns element count");
+  // 不传 reloadParts 时无部件 pivot
+  assert.equal(result.magazinePivot, null, "no magazinePivot without reloadParts");
+  assert.equal(result.slidePivot, null, "no slidePivot without reloadParts");
 
   const group = scene.getNodeByName("p90-first-person-solid-model");
   assert.ok(group, "model group exists");
@@ -65,6 +80,83 @@ test("P90 Blockbench conversion creates pivot nodes for rotated elements", () =>
       `rotated mesh ${index} position.x relative to origin`
     );
   }
+});
+
+test("buildFirstPersonBlockbenchMesh 按 elementIndices 将部件 transform root 挂到 pivot", () => {
+  // 显式 element index 是运行时唯一绑定来源；带旋转 element 要保留自己的旋转 pivot。
+  const model = loadGlock17Model();
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  const root = new BABYLON.TransformNode("root", scene);
+
+  const reloadParts = {
+    magazine: { elementIndices: [81, 82, 83] },
+    slide: { elementIndices: [112, 113] },
+  };
+  const result = buildFirstPersonBlockbenchMesh(model, scene, root, "glock17", reloadParts);
+  assert.ok(result.magazinePivot, "magazinePivot created");
+  assert.ok(result.slidePivot, "slidePivot created");
+
+  const magazinePivot = scene.getNodeByName("glock17-magazine-pivot");
+  const slidePivot = scene.getNodeByName("glock17-slide-pivot");
+  assert.ok(magazinePivot, "magazine pivot node exists");
+  assert.ok(slidePivot, "slide pivot node exists");
+
+  for (const [index, expectedPivot] of [
+    [81, magazinePivot],
+    [82, magazinePivot],
+    [83, magazinePivot],
+    [112, slidePivot],
+    [113, slidePivot],
+  ]) {
+    const element = model.elements[index];
+    const mesh = scene.getMeshByName(`glock17-solid-part-${index}`);
+    assert.ok(mesh, `mesh ${index} exists`);
+    if (Math.abs(element.rotation?.angle ?? 0) > 0.001) {
+      const rotationPivot = scene.getNodeByName(`glock17-solid-part-${index}-pivot`);
+      assert.ok(rotationPivot, `rotation pivot ${index} exists`);
+      assert.equal(rotationPivot.parent, expectedPivot, `rotated element ${index} transform root parented to part pivot`);
+      assert.equal(mesh.parent, rotationPivot, `rotated element ${index} keeps mesh under rotation pivot`);
+    } else {
+      assert.equal(mesh.parent, expectedPivot, `element ${index} mesh parented to part pivot`);
+    }
+  }
+
+  const unrelatedMesh = scene.getMeshByName("glock17-solid-part-0");
+  assert.notEqual(unrelatedMesh.parent, magazinePivot, "unlisted element not parented to magazinePivot");
+  assert.notEqual(unrelatedMesh.parent, slidePivot, "unlisted element not parented to slidePivot");
+
+  scene.dispose();
+  engine.dispose();
+});
+
+test("updateWeaponModel 非激活时归零部件 pivot", () => {
+  // 验证切枪时旧武器的 pivot 被归零，避免切回时停留在换弹中途位置
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  const magazinePivot = new BABYLON.TransformNode("mag-pivot", scene);
+  const slidePivot = new BABYLON.TransformNode("slide-pivot", scene);
+  magazinePivot.position.set(0.5, -0.3, 0.1);
+  slidePivot.position.set(0.2, 0.1, -0.1);
+  const controller = {
+    root: new BABYLON.TransformNode("root", scene),
+    muzzleAnchor: new BABYLON.TransformNode("muzzle", scene),
+    ready: true, failed: false, weaponId: "glock17", partCount: 0, status: "ok",
+    modelConfig: TEST_MODEL_CONFIG, hands: null,
+    magazinePivot, slidePivot,
+  };
+  updateWeaponModel(controller, {
+    active: false, recoil: 0, reloading: false, reloadProgress: 0,
+    reloadIsEmpty: false, modelConfig: TEST_MODEL_CONFIG,
+  });
+  assert.equal(magazinePivot.position.x, 0, "magazinePivot x reset");
+  assert.equal(magazinePivot.position.y, 0, "magazinePivot y reset");
+  assert.equal(magazinePivot.position.z, 0, "magazinePivot z reset");
+  assert.equal(slidePivot.position.x, 0, "slidePivot x reset");
+  assert.equal(slidePivot.position.y, 0, "slidePivot y reset");
+  assert.equal(slidePivot.position.z, 0, "slidePivot z reset");
+  scene.dispose();
+  engine.dispose();
 });
 
 test("P90 Blockbench model bounding box stays compact", () => {
@@ -406,3 +498,106 @@ for (const { id, path: modelPath, textureKey } of STAGE2_MODELS) {
     engine.dispose();
   });
 }
+
+// ===== updateWeaponModel 换弹动画测试（Phase 2 方块手） =====
+// TEST_MODEL_CONFIG 已在文件顶部定义，此处直接复用
+
+test("updateWeaponModel 接受 reloadProgress/reloadIsEmpty 参数不报错", () => {
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0, 0, 0), scene);
+  const controller = {
+    root: new BABYLON.TransformNode("test-root", scene),
+    muzzleAnchor: new BABYLON.TransformNode("test-muzzle", scene),
+    ready: true,
+    failed: false,
+    weaponId: "glock17",
+    partCount: 10,
+    status: "ready",
+    modelConfig: TEST_MODEL_CONFIG,
+    hands: null,
+  };
+  controller.root.parent = camera;
+  controller.muzzleAnchor.parent = controller.root;
+
+  assert.doesNotThrow(() => {
+    updateWeaponModel(controller, {
+      active: true,
+      recoil: 0,
+      reloading: true,
+      reloadProgress: 0.5,
+      reloadIsEmpty: true,
+      modelConfig: TEST_MODEL_CONFIG,
+    });
+  });
+
+  scene.dispose();
+  engine.dispose();
+});
+
+test("updateRootTransform reloadProgress=0.5 时 root 位置比 reloadProgress=0 更低", () => {
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0, 0, 0), scene);
+
+  // progress=0 时
+  const controller0 = {
+    root: new BABYLON.TransformNode("root-0", scene),
+    muzzleAnchor: new BABYLON.TransformNode("muzzle-0", scene),
+    ready: true, failed: false, weaponId: "glock17", partCount: 0, status: "ok",
+    modelConfig: TEST_MODEL_CONFIG, hands: null,
+  };
+  controller0.root.parent = camera;
+  controller0.muzzleAnchor.parent = controller0.root;
+  updateWeaponModel(controller0, {
+    active: true, recoil: 0, reloading: true, reloadProgress: 0,
+    reloadIsEmpty: false, modelConfig: TEST_MODEL_CONFIG,
+  });
+  const yAt0 = controller0.root.position.y;
+
+  // progress=0.5 时
+  const controller5 = {
+    root: new BABYLON.TransformNode("root-5", scene),
+    muzzleAnchor: new BABYLON.TransformNode("muzzle-5", scene),
+    ready: true, failed: false, weaponId: "glock17", partCount: 0, status: "ok",
+    modelConfig: TEST_MODEL_CONFIG, hands: null,
+  };
+  controller5.root.parent = camera;
+  controller5.muzzleAnchor.parent = controller5.root;
+  updateWeaponModel(controller5, {
+    active: true, recoil: 0, reloading: true, reloadProgress: 0.5,
+    reloadIsEmpty: false, modelConfig: TEST_MODEL_CONFIG,
+  });
+  const yAt5 = controller5.root.position.y;
+
+  // progress=0.5 时 sin(π·0.5)=1，下沉最大；progress=0 时 sin(0)=0，无下沉
+  assert.ok(yAt5 < yAt0, `progress=0.5 的 y(${yAt5}) 应小于 progress=0 的 y(${yAt0})`);
+
+  scene.dispose();
+  engine.dispose();
+});
+
+test("updateRootTransform 非换弹时 reloadDrop 为 0", () => {
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0, 0, 0), scene);
+  const controller = {
+    root: new BABYLON.TransformNode("root", scene),
+    muzzleAnchor: new BABYLON.TransformNode("muzzle", scene),
+    ready: true, failed: false, weaponId: "glock17", partCount: 0, status: "ok",
+    modelConfig: TEST_MODEL_CONFIG, hands: null,
+  };
+  controller.root.parent = camera;
+  controller.muzzleAnchor.parent = controller.root;
+  updateWeaponModel(controller, {
+    active: true, recoil: 0, reloading: false, reloadProgress: 0,
+    reloadIsEmpty: false, modelConfig: TEST_MODEL_CONFIG,
+  });
+  // 非换弹时 y 应等于 base position y（无 reloadDrop）
+  assert.ok(
+    Math.abs(controller.root.position.y - TEST_MODEL_CONFIG.position[1]) < 1e-6,
+    "非换弹时 root y 等于 base position y"
+  );
+  scene.dispose();
+  engine.dispose();
+});

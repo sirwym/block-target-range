@@ -1,6 +1,7 @@
 import * as BABYLON from "@babylonjs/core";
 import { ASSET_PATHS } from "./config.js";
 import { colorMaterial } from "./assets.js";
+import { isTaczNativeWeapon, loadTaczWeapon } from "./taczWeaponLoader.js";
 
 const FIRST_PERSON_WEAPON_COLORS = {
   glock17: "#24272b",
@@ -8,6 +9,11 @@ const FIRST_PERSON_WEAPON_COLORS = {
   ak47: "#4a3a2c",
   awp: "#30343a",
   p90: "#232527",
+  // V2 新增 4 把武器材质色
+  deagle_golden: "#b8860b",  // 黄金色（黄金沙鹰）
+  rpg7: "#3a4a2a",           // 军绿（RPG 火箭筒）
+  m107: "#3d3a32",           // 沙色金属（反器材狙击）
+  m95: "#2f2e35",            // 深灰（重型栓动）
   fallback: "#2b2f34",
 };
 
@@ -19,6 +25,13 @@ export const P90_MATERIAL_COLORS = {
   "#3": "#2b2e31",
   fallback: "#232527",
 };
+
+// TaCZ 原生武器枪口 bone 查找优先级
+// muzzle_pos 是 TaCZ geo 中标准的枪口位置 bone（deagle/m107/m95 都有）
+// muzzle_flash 是枪口火焰 bone，位置略前于 muzzle_pos，作为备选
+// muzzle_default 是默认枪口 bone（m107/m95 有）
+// rocket_head 是 RPG7 火箭弹头 bone，RPG7 无 muzzle_pos，用弹头前端作枪口
+const TACZ_MUZZLE_BONE_NAMES = ["muzzle_pos", "muzzle_flash", "muzzle_default", "rocket_head"];
 
 // ===== 通用 3D 武器模型加载器 =====
 // 5 把武器统一走 createWeaponModel，P90 保留多色材质（按 texture key 选 P90_MATERIAL_COLORS）。
@@ -39,38 +52,72 @@ export function createWeaponModel(scene, camera, weaponId, modelConfig, textureM
     partCount: 0,
     status: "loading",
     modelConfig,
+    hands: null,  // 方块手控制器，由 main.js 创建后挂载
+    isTaczNative: false,  // TaCZ 原生 geo 标记，由 loadWeaponModel 设置
   };
 
   loadWeaponModel(scene, root, controller, weaponId, textureMap, onStatus);
   return controller;
 }
 
-export function updateWeaponModel(controller, { active, recoil, reloading, modelConfig }) {
+export function updateWeaponModel(controller, { active, recoil, reloading, reloadProgress, reloadIsEmpty, modelConfig }) {
   if (!controller?.ready) return false;
   controller.root.setEnabled(active);
-  if (!active) return false;
-  updateRootTransform(controller.root, { recoil, reloading, modelConfig });
+  if (!active) {
+    // 原生武器无 magazinePivot/slidePivot/boltPivot，跳过旧路径归零
+    if (!controller.isTaczNative) {
+      resetPartPivot(controller.magazinePivot);
+      resetPartPivot(controller.slidePivot);
+      resetPartPivot(controller.heldMagazinePivot);
+      resetPartPivot(controller.heldRocketPivot);
+      setHeldPartVisible(controller, false);
+    }
+    return false;
+  }
+  updateRootTransform(controller.root, { recoil, reloading, reloadProgress, modelConfig });
   updateMuzzleAnchor(controller, modelConfig);
   return true;
 }
 
-function applyModelConfig(root, modelConfig) {
-  root.position.set(modelConfig.position[0], modelConfig.position[1], modelConfig.position[2]);
-  root.rotation.set(modelConfig.rotation[0], modelConfig.rotation[1], modelConfig.rotation[2]);
-  root.scaling.setAll(modelConfig.scaling);
+function resetPartPivot(pivot) {
+  if (!pivot) return;
+  pivot.position.set(0, 0, 0);
+  pivot.rotation.set(0, 0, 0);
 }
 
-function updateRootTransform(root, { recoil, reloading, modelConfig }) {
-  const base = modelConfig.position;
-  const baseRot = modelConfig.rotation;
-  const reloadDrop = reloading ? 0.16 : 0;
+function applyModelConfig(root, modelConfig) {
+  // 优先读 viewTransform（TaCZ 原生路径），fallback 到旧字段（旧 5 把枪兼容）
+  const view = modelConfig.viewTransform;
+  if (view) {
+    root.position.set(view.position[0], view.position[1], view.position[2]);
+    root.rotation.set(view.rotation[0], view.rotation[1], view.rotation[2]);
+    root.scaling.setAll(view.scale ?? 1.0);
+  } else {
+    root.position.set(modelConfig.position[0], modelConfig.position[1], modelConfig.position[2]);
+    root.rotation.set(modelConfig.rotation[0], modelConfig.rotation[1], modelConfig.rotation[2]);
+    root.scaling.setAll(modelConfig.scaling);
+  }
+}
+
+function updateRootTransform(root, { recoil, reloading, reloadProgress, modelConfig }) {
+  // 优先读 viewTransform（TaCZ 原生路径），fallback 到旧字段
+  const view = modelConfig.viewTransform;
+  const base = view?.position ?? modelConfig.position;
+  const baseRot = view?.rotation ?? modelConfig.rotation;
+  const rootMotionScale = view?.rootMotionScale ?? 1.0;
+  // 换弹下沉/旋转：用正弦曲线 sin(π·progress) 让武器先沉下去再抬起，比静态 0.16 更自然
+  // progress=0/1 时 sin=0（基础位），progress=0.5 时 sin=1（最低点）
+  const clampedProgress = Math.max(0, Math.min(1, reloadProgress ?? 0));
+  const reloadFactor = reloading ? Math.sin(Math.PI * clampedProgress) : 0;
+  const reloadDrop = reloadFactor * 0.2 * rootMotionScale;
+  const reloadRotX = reloadFactor * 0.15 * rootMotionScale;
   root.position.set(
     base[0] + recoil * 0.07,
     base[1] - recoil * 0.05 - reloadDrop,
     base[2]
   );
   root.rotation.set(
-    baseRot[0] - recoil * 0.08 + (reloading ? 0.12 : 0),
+    baseRot[0] - recoil * 0.08 + reloadRotX,
     baseRot[1],
     baseRot[2] - recoil * 0.1
   );
@@ -79,32 +126,100 @@ function updateRootTransform(root, { recoil, reloading, modelConfig }) {
 function createMuzzleAnchor(scene, root, weaponId, modelConfig) {
   const anchor = new BABYLON.TransformNode(`${weaponId}-muzzle-anchor`, scene);
   anchor.parent = root;
-  setMuzzleAnchorPosition(anchor, modelConfig);
+  // 创建时 controller 尚未加载（loadWeaponModel 异步），只能用手填 fallback 值
+  // 原生武器加载完成后，由 updateMuzzleAnchor 每帧从 geo bone 重新计算
+  setMuzzleAnchorPosition(anchor, modelConfig, null);
   return anchor;
 }
 
 function updateMuzzleAnchor(controller, modelConfig) {
   controller.modelConfig = modelConfig;
-  setMuzzleAnchorPosition(controller.muzzleAnchor, modelConfig);
+  setMuzzleAnchorPosition(controller.muzzleAnchor, modelConfig, controller);
 }
 
-function setMuzzleAnchorPosition(anchor, modelConfig) {
+function setMuzzleAnchorPosition(anchor, modelConfig, controller) {
+  // 原生武器：从 geo boneMap 自动计算枪口位置
+  // muzzleAnchor.parent = controller.root，weapon.model.root.parent = controller.root
+  // 所以 muzzleAnchor 本地坐标 = bone 世界坐标 → controller.root 空间本地坐标
+  if (controller?.isTaczNative && controller.taczBoneMap && controller.taczGeoModel?.root) {
+    const root = controller.root;
+    for (const boneName of TACZ_MUZZLE_BONE_NAMES) {
+      const boneNode = controller.taczBoneMap.get(boneName);
+      if (!boneNode) continue;
+      // 沿父链从顶向下更新所有祖先节点的世界矩阵（包括 camera）
+      // getAbsolutePosition() 需要整条链路都是最新的
+      const ancestors = [];
+      let current = boneNode;
+      while (current) {
+        ancestors.push(current);
+        current = current.parent;
+      }
+      // 从最顶层祖先（场景根或 camera）向下更新到 boneNode
+      for (let i = ancestors.length - 1; i >= 0; i--) {
+        ancestors[i].computeWorldMatrix(true);
+      }
+      const boneWorld = boneNode.getAbsolutePosition();
+      const rootMatrix = root.getWorldMatrix().clone();
+      rootMatrix.invert();
+      const localPos = BABYLON.Vector3.TransformCoordinates(boneWorld, rootMatrix);
+      anchor.position.copyFrom(localPos);
+      return;
+    }
+  }
+  // fallback：旧武器或未找到 muzzle bone 时用手填值
   const position = modelConfig.muzzleLocalPosition;
   anchor.position.set(position[0], position[1], position[2]);
 }
 
 async function loadWeaponModel(scene, root, controller, weaponId, textureMap, onStatus) {
   try {
+    // TaCZ 原生 geo 路径：9 把枪走 display.json → Bedrock geo renderer
+    if (isTaczNativeWeapon(weaponId)) {
+      const weapon = await loadTaczWeapon(weaponId, scene);
+      weapon.model.root.parent = root;
+      // 位置/旋转/缩放由 firstPersonRig 的 WEAPON_CALIBRATION 控制（Phase 5 迁移）
+      // 此处不再硬编码 position/rotation/scaling，避免与 adapter rig 层级冲突
+      weapon.model.root.position.set(0, 0, 0);
+      weapon.model.root.rotation.set(0, 0, 0);
+      weapon.model.root.scaling.setAll(1);
+      // 挂载到 controller，供动画系统直接驱动 boneMap
+      controller.taczBoneMap = weapon.model.boneMap;
+      controller.taczGeoModel = weapon.model;
+      controller.taczTransform = weapon.transform;
+      controller.ready = true;
+      controller.partCount = weapon.model.cubes.length;
+      controller.isTaczNative = true;
+      controller.source = "tacz-native-geo";
+      controller.status = `${weaponId} TaCZ native loaded (${controller.partCount} cubes)`;
+      // 方式 A（主方案）：加载完成后立即同步 taczBoneMap/taczGeoModel 到 animationController
+      // main.js 行 700 同步创建 animationController，此处异步加载完成时它已存在
+      // 不依赖 isActive 和 controller.hands，比方式 B（惰性同步）更可靠
+      if (controller.animationController) {
+        controller.animationController.taczBoneMap = controller.taczBoneMap;
+        controller.animationController.taczGeoModel = controller.taczGeoModel;
+      }
+      onStatus(controller.status);
+      return;
+    }
+
+    // 旧路径：buildFirstPersonBlockbenchMesh 扁平 Blockbench elements
     const modelPath = ASSET_PATHS.weaponModels[weaponId];
     if (!modelPath) throw new Error(`No model path for ${weaponId}`);
     const response = await fetch(modelPath);
     if (!response.ok) throw new Error(`Model JSON missing for ${weaponId}`);
     const model = await response.json();
 
-    const partCount = buildFirstPersonBlockbenchMesh(model, scene, root, weaponId);
+    const reloadParts = controller.modelConfig?.reloadParts;
+    const result = buildFirstPersonBlockbenchMesh(model, scene, root, weaponId, reloadParts);
     controller.ready = true;
-    controller.partCount = partCount;
-    controller.status = `${weaponId} model loaded (${partCount} parts)`;
+    controller.partCount = result.partCount;
+    controller.magazinePivot = result.magazinePivot;
+    controller.slidePivot = result.slidePivot;
+    controller.boltPivot = result.boltPivot;
+    controller.partRoots = result.partRoots;
+    controller.heldMagazinePivot = result.heldMagazinePivot;
+    controller.heldRocketPivot = result.heldRocketPivot;
+    controller.status = `${weaponId} model loaded (${result.partCount} parts)`;
     onStatus(controller.status);
   } catch (error) {
     console.warn(`[${weaponId} 3D] model load failed:`, error);
@@ -114,7 +229,17 @@ async function loadWeaponModel(scene, root, controller, weaponId, textureMap, on
   }
 }
 
-export function buildFirstPersonBlockbenchMesh(model, scene, parent, weaponId) {
+function buildPartIndexMap(reloadParts) {
+  const map = new Map();
+  for (const partName of ["magazine", "slide", "bolt"]) {
+    const indices = reloadParts?.[partName]?.elementIndices;
+    if (!Array.isArray(indices)) continue;
+    for (const index of indices) map.set(index, partName);
+  }
+  return map;
+}
+
+export function buildFirstPersonBlockbenchMesh(model, scene, parent, weaponId, reloadParts) {
   const materials = buildMaterialsForWeapon(scene, weaponId);
 
   const group = new BABYLON.TransformNode(`${weaponId}-first-person-solid-model`, scene);
@@ -123,15 +248,103 @@ export function buildFirstPersonBlockbenchMesh(model, scene, parent, weaponId) {
   group.rotation.set(0, Math.PI, 0);
   group.scaling.setAll(1.05);
 
+  // 创建部件 pivot：弹匣/套筒独立 TransformNode，换弹时移动 pivot 实现部件级动画
+  const magazinePivot = reloadParts?.magazine
+    ? new BABYLON.TransformNode(`${weaponId}-magazine-pivot`, scene)
+    : null;
+  if (magazinePivot) {
+    magazinePivot.parent = group;
+    magazinePivot.position.set(0, 0, 0);
+  }
+  const slidePivot = reloadParts?.slide
+    ? new BABYLON.TransformNode(`${weaponId}-slide-pivot`, scene)
+    : null;
+  if (slidePivot) {
+    slidePivot.parent = group;
+    slidePivot.position.set(0, 0, 0);
+  }
+  const boltPivot = reloadParts?.bolt
+    ? new BABYLON.TransformNode(`${weaponId}-bolt-pivot`, scene)
+    : null;
+  if (boltPivot) {
+    boltPivot.parent = group;
+    boltPivot.position.set(0, 0, 0);
+  }
+
+  const partIndexMap = buildPartIndexMap(reloadParts);
+  const partRoots = { magazine: [], slide: [], bolt: [] };
   model.elements.forEach((element, index) => {
-    const mesh = buildSolidElementMesh(element, scene, group, weaponId, index);
+    const built = buildSolidElementMesh(element, scene, group, weaponId, index);
+    const mesh = built?.mesh;
     if (!mesh) return;
     mesh.material = selectMaterialForElement(element, materials, weaponId);
     mesh.isPickable = false;
     mesh.renderingGroupId = 2;
     mesh.alwaysSelectAsActiveMesh = true;
+    mesh.metadata = { elementIndex: index, from: element.from, to: element.to };
+
+    const partName = partIndexMap.get(index);
+    if (partName === "magazine" && magazinePivot) {
+      built.transformRoot.parent = magazinePivot;
+      built.transformRoot.metadata = { ...(built.transformRoot.metadata ?? {}), reloadPart: "magazine", elementIndex: index };
+      partRoots.magazine.push(built.transformRoot);
+    } else if (partName === "slide" && slidePivot) {
+      built.transformRoot.parent = slidePivot;
+      built.transformRoot.metadata = { ...(built.transformRoot.metadata ?? {}), reloadPart: "slide", elementIndex: index };
+      partRoots.slide.push(built.transformRoot);
+    } else if (partName === "bolt" && boltPivot) {
+      built.transformRoot.parent = boltPivot;
+      built.transformRoot.metadata = { ...(built.transformRoot.metadata ?? {}), reloadPart: "bolt", elementIndex: index };
+      partRoots.bolt.push(built.transformRoot);
+    }
   });
-  return model.elements.length;
+  const heldMagazinePivot = createHeldPartPivot(scene, group, weaponId, "magazine", partRoots.magazine);
+  const heldRocketPivot = weaponId === "rpg7" ? createHeldPartPivot(scene, group, weaponId, "rocket", []) : null;
+  return { partCount: model.elements.length, magazinePivot, slidePivot, boltPivot, partRoots, heldMagazinePivot, heldRocketPivot };
+}
+
+function createHeldPartPivot(scene, parent, weaponId, partName, sourceRoots) {
+  const pivot = new BABYLON.TransformNode(`${weaponId}-held-${partName}-pivot`, scene);
+  pivot.parent = parent;
+  pivot.setEnabled(false);
+  if (sourceRoots?.length) {
+    sourceRoots.forEach((sourceRoot, index) => {
+      const clone = sourceRoot.clone(`${weaponId}-held-${partName}-${index}`, pivot, true);
+      if (clone) {
+        clone.parent = pivot;
+        clone.setEnabled(true);
+        for (const mesh of clone.getChildMeshes?.(false) ?? []) {
+          mesh.isPickable = false;
+          mesh.renderingGroupId = 2;
+        }
+      }
+    });
+  } else {
+    const fallback = partName === "rocket"
+      ? BABYLON.MeshBuilder.CreateCylinder(`${weaponId}-held-rocket-body`, { height: 0.58, diameter: 0.09, tessellation: 12 }, scene)
+      : BABYLON.MeshBuilder.CreateBox(`${weaponId}-held-${partName}-body`, { width: 0.13, height: 0.28, depth: 0.08 }, scene);
+    fallback.parent = pivot;
+    fallback.rotation.z = partName === "rocket" ? Math.PI / 2 : 0;
+    const fallbackColor = partName === "rocket"
+      ? "#4b5d35"
+      : weaponId === "p90"
+        ? P90_MATERIAL_COLORS.fallback
+        : "#17191b";
+    fallback.material = colorMaterial(scene, fallbackColor, { emissive: BABYLON.Color3.FromHexString("#030303") });
+    fallback.isPickable = false;
+    fallback.renderingGroupId = 2;
+  }
+  return pivot;
+}
+
+export function setReloadPartVisible(controller, partName, visible) {
+  const roots = controller?.partRoots?.[partName] ?? [];
+  roots.forEach((root) => root.setEnabled?.(visible));
+}
+
+export function setHeldPartVisible(controller, visible, partName = "magazine") {
+  const pivot = partName === "rocket" ? controller?.heldRocketPivot : controller?.heldMagazinePivot;
+  pivot?.setEnabled(Boolean(visible));
 }
 
 // 按武器构建材质映射：P90 多色（#2/#3/fallback），其他武器单色 + accent 双色
@@ -197,6 +410,7 @@ function buildSolidElementMesh(element, scene, parent, weaponId, index) {
       (cy - origin[1]) / 16,
       (cz - origin[2]) / 16
     );
+    return { mesh, transformRoot: pivot };
   } else {
     mesh.parent = parent;
     mesh.position.set(
@@ -205,7 +419,7 @@ function buildSolidElementMesh(element, scene, parent, weaponId, index) {
       (cz - 8) / 16
     );
   }
-  return mesh;
+  return { mesh, transformRoot: mesh };
 }
 
 function shouldUseAccentMaterial(element) {

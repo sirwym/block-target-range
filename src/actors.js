@@ -189,6 +189,77 @@ export function updateTarget(target, delta, elapsed, solidColliders) {
   animateTarget(target, elapsed);
 }
 
+// 动靶三路线更新：horizontal（水平振荡）/ circular（圆形）/ pendulum（前后弹）
+// frozen=true 时跳过路线计算但保留动画，供 E2E 调试用（moveMovingTargetsToCenter 设 frozen）
+export function updateRouteTarget(target, delta, elapsed, cfg) {
+  const group = target.group;
+  const data = group.metadata;
+  data.hitTimer = Math.max(0, data.hitTimer - delta);
+  data.healthVisibleTimer = Math.max(0, data.healthVisibleTimer - delta);
+  target.healthBar.group.setEnabled(data.healthVisibleTimer > 0);
+
+  if (data.frozen) {
+    animateTarget(target, elapsed);
+    return;
+  }
+  const t = elapsed * cfg.moveSpeed + data.phase;
+  const cx = cfg.center.x;
+  const cz = cfg.center.z;
+  const prevX = group.position.x;
+  const prevZ = group.position.z;
+  if (data.route === "horizontal") {
+    // 水平正弦振荡：x = cx + sin(t) * range，z 固定
+    group.position.x = cx + Math.sin(t) * cfg.xRange;
+    group.position.z = cz;
+  } else if (data.route === "circular") {
+    // 圆形：x = cx + cos(t)*r，z = cz + sin(t)*r
+    group.position.x = cx + Math.cos(t) * cfg.circularRadius;
+    group.position.z = cz + Math.sin(t) * cfg.circularRadius;
+  } else if (data.route === "pendulum") {
+    // 钟摆：z 在 [cz, cz + range] 间来回弹（用 abs(sin) 避免 z 越界到 cz 以下）
+    group.position.z = cz + Math.abs(Math.sin(t)) * cfg.pendulumRange;
+    group.position.x = cx;
+  }
+  // 朝向移动方向（位置差分算 atan2，避免除零）
+  const dx = group.position.x - prevX;
+  const dz = group.position.z - prevZ;
+  if (Math.abs(dx) > 1e-5 || Math.abs(dz) > 1e-5) {
+    group.rotation.y = Math.atan2(dx, dz);
+  }
+  group.position.y = data.baseY + Math.sin(elapsed * 8 + data.phase) * 0.055;
+  animateTarget(target, elapsed);
+}
+
+// 追踪 AI 更新：朝玩家位置（camera.position）移动，接触判定由 weaponLab update 负责
+// 击中时（hitTimer > 0）停顿 0.2s 不前进，保留手感但不复杂化方向计算
+export function updateChasingTarget(target, delta, elapsed, chasePosition, solidColliders) {
+  const group = target.group;
+  const data = group.metadata;
+  data.hitTimer = Math.max(0, data.hitTimer - delta);
+  data.healthVisibleTimer = Math.max(0, data.healthVisibleTimer - delta);
+  target.healthBar.group.setEnabled(data.healthVisibleTimer > 0);
+
+  // 朝玩家方向的水平向量
+  const dx = chasePosition.x - group.position.x;
+  const dz = chasePosition.z - group.position.z;
+  const dist = Math.hypot(dx, dz);
+  // 击中瞬间停顿：hitTimer > 0 时不前进，让玩家有"打中有效"的反馈
+  if (dist > 0.001 && data.hitTimer <= 0) {
+    const nx = dx / dist;
+    const nz = dz / dist;
+    const nextX = group.position.x + nx * data.speed * delta;
+    const nextZ = group.position.z + nz * data.speed * delta;
+    if (!wouldEnemyCollide({ x: nextX, y: group.position.y, z: nextZ }, solidColliders, data.collisionRadius ?? 0.9, data.collisionHeight ?? 3.5)) {
+      group.position.x = nextX;
+      group.position.z = nextZ;
+    }
+    // 朝向移动方向（让僵尸面朝玩家）
+    group.rotation.y = Math.atan2(nx, nz);
+  }
+  group.position.y = data.baseY + Math.sin(elapsed * 8 + data.phase) * 0.055;
+  animateTarget(target, elapsed);
+}
+
 export function animateTarget(target, elapsed) {
   const data = target.group.metadata;
   const phase = elapsed * 7 + data.phase;

@@ -10,12 +10,18 @@ const MAX_ACTIVE_SOURCES = 8;
 let preloaded = false;
 
 export function extractWeaponId(type) {
-  const match = type.match(/^([a-z0-9]+)(Fire|Reload|Draw)$/);
+  // 识别 Shoot/ReloadEmpty(Magout/Magin)/ReloadTactical(Magout/Magin)/Draw/Fire/Reload 后缀
+  // 顺序很重要：长后缀（ReloadEmptyMagout）必须在前，短后缀（Reload）在后
+  // weaponId 部分支持下划线（如 deagle_golden）
+  const match = type.match(
+    /^([a-z0-9_]+)(Shoot|ReloadEmptyMagout|ReloadEmptyMagin|ReloadTacticalMagout|ReloadTacticalMagin|ReloadEmpty|ReloadTactical|Draw|Fire|Reload)$/
+  );
   return match ? match[1] : null;
 }
 
 export function shouldThrottle(type, now, lastFire = 0, activeCount = 0) {
-  if (!type.endsWith("Fire")) return false;
+  // 兼容新旧开火音后缀：Shoot（V2）和 Fire（旧版）
+  if (!type.endsWith("Shoot") && !type.endsWith("Fire")) return false;
   const weaponId = extractWeaponId(type);
   const fireInterval = WEAPON_CONFIG[weaponId]?.fireInterval ?? 0.1;
   const minInterval = fireInterval * 0.8;
@@ -175,4 +181,28 @@ function playFallbackGunSound(type) {
   osc.connect(gain);
   osc.start(now);
   osc.stop(now + 0.15);
+}
+
+// 分段换弹音播放：AK47/AWP/P90 无 reload 单文件，用 magout+magin 两段音按时序播放。
+// t=0 播放 magout（拔弹匣），t=feedDelay 播放 magin（插弹匣）。
+// feedDelay 来自 V2 data.json 的 feed.empty / feed.tactical 时间点。
+// 保存 timer ID 以便切枪/取消换弹时清理，避免"已切枪，旧枪插弹匣音又响"。
+let segmentedReloadTimer = null;
+
+export function playSegmentedReload(magoutType, maginType, feedDelay) {
+  if (!audioContext) return;
+  cancelSegmentedReload();
+  playAudioClip(magoutType);
+  segmentedReloadTimer = setTimeout(() => {
+    segmentedReloadTimer = null;
+    if (audioContext) playAudioClip(maginType);
+  }, feedDelay * 1000);
+}
+
+// 取消待播放的 magin：切枪或中断换弹时调用，防止旧枪的插弹匣音错位
+export function cancelSegmentedReload() {
+  if (segmentedReloadTimer) {
+    clearTimeout(segmentedReloadTimer);
+    segmentedReloadTimer = null;
+  }
 }

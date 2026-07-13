@@ -28,11 +28,14 @@ test("AWP 配置了 ads 开镜参数", () => {
   assert.ok(awp.crosshair.hiddenByAds, "AWP crosshair 应标记 hiddenByAds（开镜时隐藏普通准星）");
 });
 
-test("只有 AWP 有 ads 配置", () => {
+test("只有狙击枪有 ads 配置", () => {
+  const ADS_WEAPONS = new Set(["awp", "m107", "m95"]);
   for (const weaponId of WEAPON_ORDER) {
     const weapon = WEAPON_CONFIG[weaponId];
-    if (weaponId === "awp") {
-      assert.ok(weapon.ads, "AWP 必须有 ads");
+    if (ADS_WEAPONS.has(weaponId)) {
+      assert.ok(weapon.ads, `${weaponId} 必须有 ads`);
+      assert.equal(typeof weapon.ads.fov, "number");
+      assert.ok(weapon.ads.fov > 0 && weapon.ads.fov < 1, `${weaponId} ads.fov 应在 0-1 弧度范围`);
     } else {
       assert.equal(weapon.ads, undefined, `${weaponId} 不应有 ads`);
     }

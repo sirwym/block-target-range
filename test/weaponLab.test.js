@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as BABYLON from "@babylonjs/core";
 import { WEAPON_LAB_CONFIG, GAME_CONFIG, getWaveProfile } from "../src/config.js";
-import { spawnTarget, updateTarget } from "../src/actors.js";
+import { spawnTarget, updateTarget, updateChasingTarget, updateRouteTarget } from "../src/actors.js";
 import { createStats } from "../src/weaponLab.js";
 
 test("WEAPON_LAB_CONFIG 有 playerBounds 限制玩家活动范围", () => {
@@ -213,12 +213,17 @@ test("WEAPON_LAB_CONFIG 含 enemyMode 参数", () => {
   assert.equal(em.duration, 60);
   assert.equal(typeof em.maxTargets, "number");
   assert.equal(typeof em.playerHP, "number");
-  assert.equal(em.playerHP, 5);
+  assert.equal(em.playerHP, 200);
   assert.equal(typeof em.spawnZ, "number");
   assert.equal(typeof em.goalZ, "number");
   assert.equal(typeof em.firstSpawnDelay, "number");
-  // goalZ 应在玩家初始位之前（玩家 z=12，敌人到达 goalZ=10 算抵达）
-  assert.ok(em.goalZ < WEAPON_LAB_CONFIG.playerStart.z, "goalZ 应在玩家初始位之前");
+  // 追踪 AI 模式下 goalZ 作兜底清理边界（玩家 z=12，goalZ=18 让敌人穿透后能被清理）
+  assert.ok(em.goalZ > WEAPON_LAB_CONFIG.playerStart.z, "goalZ 应大于玩家初始位（兜底清理边界）");
+  // 接触判定与无敌冷却字段
+  assert.equal(typeof em.contactRange, "number");
+  assert.ok(em.contactRange > 0, "contactRange 应为正数");
+  assert.equal(typeof em.playerDamageCooldown, "number");
+  assert.ok(em.playerDamageCooldown > 0, "playerDamageCooldown 应为正数");
   // spawnZ 应在墙后方（墙在 z=-wallDistance=-12）
   assert.ok(em.spawnZ < -WEAPON_LAB_CONFIG.wallDistance, "spawnZ 应在墙后方");
 });
@@ -420,6 +425,208 @@ test("createStats resetSession 清零 moving 统计", () => {
   assert.equal(snap.moving.damage, 0);
   assert.equal(snap.moving.kills, 0);
   assert.equal(snap.moving.headshotRate, 0);
+});
+
+test("updateChasingTarget 朝玩家方向移动（距离单调递减）", () => {
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  scene.activeCamera = new BABYLON.FreeCamera("test-camera", new BABYLON.Vector3(0, 2, 12), scene);
+  const skin = rawTexture(scene, [80, 180, 80, 255], 64, 64);
+
+  // 敌人从 z=-18 出生，玩家在 z=12
+  const target = spawnTarget({
+    scene,
+    textures: { zombie: skin, creeper: skin },
+    state: { timeLeft: 75 },
+    options: {
+      customPosition: new BABYLON.Vector3(0, 0.04, -18),
+      speed: 2.0,
+      isEnemy: true,
+      forceCreeper: false,
+    },
+  });
+  const chasePos = new BABYLON.Vector3(0, 2, 12);
+  let prevDist = BABYLON.Vector3.Distance(target.group.position, chasePos);
+  // 模拟 30 帧，每帧 16ms，敌人应朝玩家方向走
+  for (let i = 0; i < 30; i += 1) {
+    updateChasingTarget(target, 0.016, i * 0.016, chasePos, []);
+    const dist = BABYLON.Vector3.Distance(target.group.position, chasePos);
+    assert.ok(dist <= prevDist + 1e-6, `第 ${i} 帧距离应单调递减或不变（prev=${prevDist}, cur=${dist}）`);
+    prevDist = dist;
+  }
+  // 30 帧后应至少走了 0.5 单位
+  const initialDist = Math.hypot(0, 12 - (-18));
+  assert.ok(prevDist < initialDist - 0.5, "敌人应朝玩家走了至少 0.5 单位");
+
+  scene.dispose();
+  engine.dispose();
+});
+
+test("updateChasingTarget 击中时停顿（hitTimer>0 不前进）", () => {
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  scene.activeCamera = new BABYLON.FreeCamera("test-camera", new BABYLON.Vector3(0, 2, 12), scene);
+  const skin = rawTexture(scene, [80, 180, 80, 255], 64, 64);
+
+  const target = spawnTarget({
+    scene,
+    textures: { zombie: skin, creeper: skin },
+    state: { timeLeft: 75 },
+    options: {
+      customPosition: new BABYLON.Vector3(0, 0.04, -18),
+      speed: 2.0,
+      isEnemy: true,
+      forceCreeper: false,
+    },
+  });
+  const chasePos = new BABYLON.Vector3(0, 2, 12);
+  target.group.metadata.hitTimer = 0.2; // 模拟刚被击中
+  const z0 = target.group.position.z;
+  updateChasingTarget(target, 0.016, 1.0, chasePos, []);
+  assert.equal(target.group.position.z, z0, "击中期间敌人不应前进");
+
+  scene.dispose();
+  engine.dispose();
+});
+
+test("updateRouteTarget horizontal 路线：x 振荡，z 不变", () => {
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  scene.activeCamera = new BABYLON.FreeCamera("test-camera", new BABYLON.Vector3(0, 2, 12), scene);
+  const skin = rawTexture(scene, [80, 180, 80, 255], 64, 64);
+
+  const target = spawnTarget({
+    scene,
+    textures: { zombie: skin, creeper: skin },
+    state: { timeLeft: 75 },
+    options: {
+      customPosition: new BABYLON.Vector3(0, 0.04, 6),
+      speed: 0,
+      isMoving: true,
+      forceCreeper: false,
+    },
+  });
+  target.group.metadata.route = "horizontal";
+  target.group.metadata.phase = 0;
+  const cfg = { moveSpeed: 1.0, center: { x: 0, z: 6 }, xRange: 7, circularRadius: 4, pendulumRange: 5 };
+
+  // 跑 100 帧采样，验证 x 在 [-7, 7]，z 恒为 6
+  let xMin = Infinity, xMax = -Infinity, zChanged = false;
+  for (let i = 0; i < 100; i += 1) {
+    updateRouteTarget(target, 0.016, i * 0.016, cfg);
+    const x = target.group.position.x;
+    const z = target.group.position.z;
+    if (x < xMin) xMin = x;
+    if (x > xMax) xMax = x;
+    if (Math.abs(z - 6) > 1e-6) zChanged = true;
+  }
+  assert.ok(xMin >= -7 - 1e-6 && xMax <= 7 + 1e-6, "horizontal x 应在 [-7, 7] 内");
+  assert.ok(xMax - xMin > 5, "horizontal x 应有显著振荡范围");
+  assert.ok(!zChanged, "horizontal z 应恒等于中心 z=6");
+
+  scene.dispose();
+  engine.dispose();
+});
+
+test("updateRouteTarget circular 路线：距中心半径≈circularRadius", () => {
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  scene.activeCamera = new BABYLON.FreeCamera("test-camera", new BABYLON.Vector3(0, 2, 12), scene);
+  const skin = rawTexture(scene, [80, 180, 80, 255], 64, 64);
+
+  const target = spawnTarget({
+    scene,
+    textures: { zombie: skin, creeper: skin },
+    state: { timeLeft: 75 },
+    options: {
+      customPosition: new BABYLON.Vector3(0, 0.04, 6),
+      speed: 0,
+      isMoving: true,
+      forceCreeper: false,
+    },
+  });
+  target.group.metadata.route = "circular";
+  target.group.metadata.phase = 0;
+  const cfg = { moveSpeed: 1.0, center: { x: 0, z: 6 }, xRange: 7, circularRadius: 4, pendulumRange: 5 };
+
+  // 跑 100 帧验证 sqrt(x² + (z-6)²) ≈ 4
+  for (let i = 0; i < 100; i += 1) {
+    updateRouteTarget(target, 0.016, i * 0.016, cfg);
+    const dx = target.group.position.x;
+    const dz = target.group.position.z - 6;
+    const r = Math.hypot(dx, dz);
+    assert.ok(Math.abs(r - 4) < 0.01, `circular 路线半径应 ≈ 4（实际 ${r}）`);
+  }
+
+  scene.dispose();
+  engine.dispose();
+});
+
+test("updateRouteTarget pendulum 路线：z 在 [cz, cz+range] 内", () => {
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  scene.activeCamera = new BABYLON.FreeCamera("test-camera", new BABYLON.Vector3(0, 2, 12), scene);
+  const skin = rawTexture(scene, [80, 180, 80, 255], 64, 64);
+
+  const target = spawnTarget({
+    scene,
+    textures: { zombie: skin, creeper: skin },
+    state: { timeLeft: 75 },
+    options: {
+      customPosition: new BABYLON.Vector3(0, 0.04, 6),
+      speed: 0,
+      isMoving: true,
+      forceCreeper: false,
+    },
+  });
+  target.group.metadata.route = "pendulum";
+  target.group.metadata.phase = 0;
+  const cfg = { moveSpeed: 1.0, center: { x: 0, z: 6 }, xRange: 7, circularRadius: 4, pendulumRange: 5 };
+
+  // 跑 100 帧，验证 z 在 [6, 11] 内，x 恒为 0
+  for (let i = 0; i < 100; i += 1) {
+    updateRouteTarget(target, 0.016, i * 0.016, cfg);
+    const z = target.group.position.z;
+    const x = target.group.position.x;
+    assert.ok(z >= 6 - 1e-6 && z <= 11 + 1e-6, `pendulum z 应在 [6, 11] 内（实际 ${z}）`);
+    assert.ok(Math.abs(x) < 1e-6, "pendulum x 应恒等于中心 x=0");
+  }
+
+  scene.dispose();
+  engine.dispose();
+});
+
+test("updateRouteTarget frozen=true 时位置不变", () => {
+  const engine = new BABYLON.NullEngine();
+  const scene = new BABYLON.Scene(engine);
+  scene.activeCamera = new BABYLON.FreeCamera("test-camera", new BABYLON.Vector3(0, 2, 12), scene);
+  const skin = rawTexture(scene, [80, 180, 80, 255], 64, 64);
+
+  const target = spawnTarget({
+    scene,
+    textures: { zombie: skin, creeper: skin },
+    state: { timeLeft: 75 },
+    options: {
+      customPosition: new BABYLON.Vector3(0, 0.04, 6),
+      speed: 0,
+      isMoving: true,
+      forceCreeper: false,
+    },
+  });
+  target.group.metadata.route = "horizontal";
+  target.group.metadata.frozen = true;
+  const cfg = { moveSpeed: 1.0, center: { x: 0, z: 6 }, xRange: 7, circularRadius: 4, pendulumRange: 5 };
+
+  const x0 = target.group.position.x;
+  const z0 = target.group.position.z;
+  for (let i = 0; i < 10; i += 1) {
+    updateRouteTarget(target, 0.016, i * 0.016, cfg);
+  }
+  assert.equal(target.group.position.x, x0, "frozen 时 x 不应变");
+  assert.equal(target.group.position.z, z0, "frozen 时 z 不应变");
+
+  scene.dispose();
+  engine.dispose();
 });
 
 function rawTexture(scene, rgba, width = 1, height = 1) {

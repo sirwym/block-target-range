@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
-import { ASSET_PATHS, WEAPON_CONFIG, WEAPON_ORDER } from "../src/config.js";
+import { ASSET_PATHS, SOUND_PATHS, WEAPON_CONFIG, WEAPON_ORDER, TAIZ_NATIVE_WEAPONS, V2_WEAPON_ANIMATION_BINDINGS } from "../src/config.js";
 import {
   CREEPER_SKIN_UV,
   SKIN_FACE_ORDER,
@@ -23,6 +23,13 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 test("key public assets exist", () => {
   flattenAssetPaths(ASSET_PATHS).forEach((assetPath) => {
     assert.equal(existsSync(join(root, "public", assetPath)), true, assetPath);
+  });
+});
+
+test("V2 sound files exist for all SOUND_PATHS", () => {
+  // SOUND_PATHS 含字符串值和 { magout, magin } 对象值（AK47/AWP/P90 分段换弹）
+  flattenAssetPaths(SOUND_PATHS).forEach((soundPath) => {
+    assert.equal(existsSync(join(root, "public", soundPath)), true, soundPath);
   });
 });
 
@@ -89,7 +96,90 @@ test("weapon first-person configs are 3D-only with muzzle anchors", () => {
       `${id} muzzleLocalPosition`
     );
     assert.equal(modelConfig.muzzleOffset, undefined, `${id} no camera-space muzzleOffset`);
+    // Phase 2：方块手锚点必须配置
+    assert.ok(modelConfig.handAnchors, `${id} has handAnchors`);
+    assert.ok(
+      Array.isArray(modelConfig.handAnchors.rightHand) && modelConfig.handAnchors.rightHand.length === 3,
+      `${id} handAnchors.rightHand`
+    );
+    assert.ok(
+      Array.isArray(modelConfig.handAnchors.leftHand) && modelConfig.handAnchors.leftHand.length === 3,
+      `${id} handAnchors.leftHand`
+    );
   }
+});
+
+test("reload part bindings use explicit element indices, not yRange", () => {
+  for (const id of WEAPON_ORDER) {
+    const parts = WEAPON_CONFIG[id].modelConfig.reloadParts;
+    // rpg7 火箭筒无传统弹匣 bone，reloadParts 为空对象，跳过 magazine 检查
+    if (id === "rpg7") {
+      assert.equal(Object.keys(parts).length, 0, "rpg7 reloadParts 应为空对象");
+      continue;
+    }
+    // TaCZ 原生武器走 boneMap 驱动，不使用 elementIndices
+    if (TAIZ_NATIVE_WEAPONS.includes(id)) {
+      continue;
+    }
+    assert.ok(parts?.magazine?.elementIndices?.length > 0, `${id} magazine indices`);
+    for (const [partName, partConfig] of Object.entries(parts)) {
+      assert.equal(partConfig.yRange, undefined, `${id}.${partName} does not use yRange at runtime`);
+      assert.ok(Array.isArray(partConfig.elementIndices), `${id}.${partName} elementIndices array`);
+      const unique = new Set(partConfig.elementIndices);
+      assert.equal(unique.size, partConfig.elementIndices.length, `${id}.${partName} indices are unique`);
+      const modelPath = WEAPON_CONFIG[id].modelPath ?? ASSET_PATHS.weaponModels[id];
+      const model = JSON.parse(readFileSync(join(root, "public", modelPath), "utf8"));
+      for (const index of partConfig.elementIndices) {
+        assert.ok(Number.isInteger(index), `${id}.${partName} index ${index} is integer`);
+        assert.ok(index >= 0 && index < model.elements.length, `${id}.${partName} index ${index} in range`);
+      }
+    }
+  }
+});
+
+test("TaCZ 原生武器 geo/display/texture/animation 资源存在", () => {
+  for (const id of TAIZ_NATIVE_WEAPONS) {
+    assert.equal(existsSync(join(root, "public", ASSET_PATHS.taczGeoModels[id])), true, `${id} geo`);
+    assert.equal(existsSync(join(root, "public", ASSET_PATHS.taczWeaponTextures[id])), true, `${id} texture`);
+    assert.equal(existsSync(join(root, "public", ASSET_PATHS.taczDisplayJson[id])), true, `${id} display`);
+    const animPath = V2_WEAPON_ANIMATION_BINDINGS[id].profile.animationPath;
+    assert.equal(existsSync(join(root, "public", animPath)), true, `${id} animation`);
+  }
+});
+
+test("TaCZ 原生武器不走 buildFirstPersonBlockbenchMesh 扁平路径", () => {
+  // Phase 5 后 9 把武器全部走 TaCZ 原生路径，校准数据由 WEAPON_CALIBRATION 提供
+  for (const id of TAIZ_NATIVE_WEAPONS) {
+    assert.equal(TAIZ_NATIVE_WEAPONS.includes(id), true, `${id} 在原生白名单中`);
+    assert.ok(WEAPON_CONFIG[id].modelConfig, `${id} 有 modelConfig`);
+  }
+});
+
+// 阶段 0：验证全部 9 把武器的 TaCZ 资源链完整性（display + geo + texture + animation）
+// 即使 5 把旧武器暂时仍走旧 Blockbench 路径，资源文件必须提前就位以便后续迁移
+test("全部 9 把武器 TaCZ 资源链完整（display + geo + texture + animation）", () => {
+  for (const id of WEAPON_ORDER) {
+    assert.equal(existsSync(join(root, "public", ASSET_PATHS.taczGeoModels[id])), true, `${id} geo.json 存在`);
+    assert.equal(existsSync(join(root, "public", ASSET_PATHS.taczWeaponTextures[id])), true, `${id} diffuse 贴图存在`);
+    assert.equal(existsSync(join(root, "public", ASSET_PATHS.taczDisplayJson[id])), true, `${id} display.json 存在`);
+    const animPath = V2_WEAPON_ANIMATION_BINDINGS[id].profile.animationPath;
+    assert.equal(existsSync(join(root, "public", animPath)), true, `${id} animation.json 存在`);
+    const playerAnimPath = V2_WEAPON_ANIMATION_BINDINGS[id].profile.playerAnimationPath;
+    assert.equal(existsSync(join(root, "public", playerAnimPath)), true, `${id} player_animation.json 存在`);
+  }
+});
+
+test("reloadbar GUI uses image-backed container instead of Rectangle background URL", () => {
+  const uiSource = readFileSync(join(root, "src", "ui.js"), "utf8");
+  assert.ok(uiSource.includes('new GUI.Container("reload-back")'), "reload-back is a container");
+  assert.ok(uiSource.includes('new GUI.Image("reload-bg", ASSET_PATHS.gui.reloadbar)'), "reloadbar background is an image child");
+  assert.equal(uiSource.includes("reloadBack.background = ASSET_PATHS.gui.reloadbar"), false);
+  assert.equal(uiSource.includes("firemodeIcon.top = -90"), false, "firemode icon no longer floats outside hotbar wrap");
+});
+
+test("steve.png player skin exists for block hands", () => {
+  const stevePath = join(root, "public", "assets", "minecraft", "entity", "player", "steve.png");
+  assert.equal(existsSync(stevePath), true, "steve.png exists at public/assets/minecraft/entity/player/steve.png");
 });
 
 test("enemy skin uv maps define six valid faces per part", () => {

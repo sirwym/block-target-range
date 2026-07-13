@@ -1,24 +1,18 @@
 import * as BABYLON from "@babylonjs/core";
-import * as GUI from "@babylonjs/gui";
 import { GAME_CONFIG, WEAPON_LAB_CONFIG, getWaveProfile } from "./config.js";
 import { addSolidBox, makeBlock } from "./world.js";
 import { createBulletHoleDecal } from "./effects.js";
-import { spawnTarget, updateTarget } from "./actors.js";
+import { spawnTarget, updateTarget, updateRouteTarget, updateChasingTarget } from "./actors.js";
 
-// 复用 ui.js 的字体栈，保证试验场看板与靶场 HUD 风格一致
-const FONT_TITLE = "MinecraftTitle, PingFang SC, Microsoft YaHei, system-ui";
-const FONT_UI = "MinecraftUI, PingFang SC, Microsoft YaHei, system-ui";
-
-// 创建武器试验场：地面 + 弹道墙 + 弹孔管理 + 双层统计 + 数据看板。
+// 创建武器试验场：地面 + 弹道墙 + 弹孔管理 + 双层统计。
 // 不建灯光（main.js 已调用 buildLighting），不建敌人/基地/倒计时。
+// 统计渲染迁移到 ui.js 的 inventory 面板，由 main.js 通过 lab.getStats() 读取后填入。
 export function createWeaponLab(scene, textures, camera) {
   const lab = {};
 
   // 碰撞器列表：weaponLab 模式下独立维护，供 movePlayer / 敌人碰撞使用。
   // 阶段 1 只放地面；后续阶段可加掩体等。
   lab.solidColliders = [];
-  // Tab 锁定相机状态：true 时 movePlayer 和鼠标转向都暂停，方便观察弹孔
-  lab.cameraLocked = false;
   // 当前模式：idle（无敌人）/ static（死靶）/ enemy（阶段4）/ moving（阶段5）。首次 spawnDummy 切 static
   lab.mode = "idle";
   // 死靶数组：独立于 main.js targets[]，避免 defeatTarget 误 splice
@@ -31,6 +25,7 @@ export function createWeaponLab(scene, textures, camera) {
   lab.enemySpawnTimer = 0;
   lab.enemyResult = null;    // null=进行中, "victory"=存活, "defeat"=阵亡
   lab.enemyLastLane = 1;
+  lab.enemyInvulnTimer = 0;  // 玩家受击无敌冷却（秒），>0 时敌人接触不再扣血
   // 动靶模式状态（阶段 5）：movingTargets 独立于 dummies/enemies/targets[]
   lab.movingTargets = [];
 
@@ -169,7 +164,8 @@ export function createWeaponLab(scene, textures, camera) {
     mt.group.getChildMeshes(false).forEach((mesh) => mesh.dispose());
     mt.group.dispose();
   }
-  lab.spawnMovingTarget = () => {
+  // route: "horizontal" | "circular" | "pendulum"，决定靶沿哪条路线运动
+  lab.spawnMovingTarget = (route = "horizontal") => {
     const cfg = WEAPON_LAB_CONFIG.movingTarget;
     const mt = spawnTarget({
       scene,
@@ -178,13 +174,17 @@ export function createWeaponLab(scene, textures, camera) {
       options: {
         // 动靶固定在 z=6：相机射线在此 z 的 y≈2.69，命中 zombie head hitbox
         customPosition: new BABYLON.Vector3(0, 0.04, cfg.zPosition),
-        speed: 0,        // speed=0 让 updateTarget 不移动 z，振荡由 update 循环处理
+        speed: 0,        // speed=0 让 updateTarget 不移动 z，运动由 updateRouteTarget 处理
         isMoving: true,
         forceCreeper: false,
       },
     });
     // 随机相位让每个靶振荡起点不同，避免同步移动
     mt.group.metadata.phase = Math.random() * Math.PI * 2;
+    // 路线标记：updateRouteTarget 据此选 horizontal/circular/pendulum 数学
+    mt.group.metadata.route = route;
+    // frozen 标记：E2E 调试 moveMovingTargetsToCenter 设 true，让靶停在 x=0 供射线命中
+    mt.group.metadata.frozen = false;
     lab.movingTargets.push(mt);
     return mt;
   };
@@ -193,9 +193,9 @@ export function createWeaponLab(scene, textures, camera) {
     lab.clearEnemies();
     lab.clearMovingTargets();
     lab.mode = "moving";
-    for (let i = 0; i < WEAPON_LAB_CONFIG.movingTarget.count; i += 1) {
-      lab.spawnMovingTarget();
-    }
+    // 启动时分配 3 条路线各 1 个靶（horizontal/circular/pendulum）
+    const routes = ["horizontal", "circular", "pendulum"];
+    routes.forEach((route) => lab.spawnMovingTarget(route));
   };
   lab.stopMovingMode = () => {
     lab.clearMovingTargets();
@@ -217,9 +217,7 @@ export function createWeaponLab(scene, textures, camera) {
     lab.stats.recordMovingKill();
   };
 
-  // 4. 数据看板（GUI，左上）
-  lab.panel = createStatsPanel(scene);
-
+  // 4. 统计数据接口（GUI 渲染迁移到 ui.js 的 inventory 面板，由 main.js 通过 lab.getStats() 读取）
   lab.update = (delta, elapsed) => {
     lab.stats.tick(delta);
     // 遍历死靶：死态倒计时重生，活态走 updateTarget（speed=0 不动，保留摆动/血条朝向）
@@ -265,16 +263,26 @@ export function createWeaponLab(scene, textures, camera) {
         const wave = getWaveProfile(lab.enemyElapsed);
         lab.enemySpawnTimer = randFloat(wave.spawnMin, wave.spawnMax);
       }
-      // 更新敌人位置 + 检查抵达玩家
+      // 更新敌人位置：追踪 AI 朝玩家方向走（替代固定 lane 推进）
       for (let i = lab.enemies.length - 1; i >= 0; i -= 1) {
         const enemy = lab.enemies[i];
-        updateTarget(enemy, delta, elapsed, lab.solidColliders);
-        if (enemy.group.position.z > WEAPON_LAB_CONFIG.enemyMode.goalZ) {
+        updateChasingTarget(enemy, delta, elapsed, camera.position, lab.solidColliders);
+        // 接触扣血：用水平距离（不含 Y）判定，敌人 y=0.04 与相机 y=2.25 的 Y 差会让 3D 距离恒 > 2
+        const dx = enemy.group.position.x - camera.position.x;
+        const dz = enemy.group.position.z - camera.position.z;
+        const horizontalDist = Math.hypot(dx, dz);
+        if (horizontalDist < WEAPON_LAB_CONFIG.enemyMode.contactRange && lab.enemyInvulnTimer <= 0) {
           lab.enemyHP = Math.max(0, lab.enemyHP - WEAPON_LAB_CONFIG.enemyMode.damagePerReach);
+          lab.enemyInvulnTimer = WEAPON_LAB_CONFIG.enemyMode.playerDamageCooldown;
+        }
+        // 兜底清理：敌人穿透玩家后继续往前走会脱离场地，goalZ 作清理边界
+        if (enemy.group.position.z > WEAPON_LAB_CONFIG.enemyMode.goalZ) {
           disposeEnemy(enemy);
           lab.enemies.splice(i, 1);
         }
       }
+      // 无敌冷却递减
+      if (lab.enemyInvulnTimer > 0) lab.enemyInvulnTimer = Math.max(0, lab.enemyInvulnTimer - delta);
       // 结束条件：计时归零=存活，HP 归零=阵亡
       if (lab.enemyTimeLeft <= 0) {
         lab.enemyResult = "victory";
@@ -304,21 +312,18 @@ export function createWeaponLab(scene, textures, camera) {
             mt.healthBar.fill.position.x = 0;
           }
         } else {
-          updateTarget(mt, delta, elapsed, lab.solidColliders);
-          // 水平正弦振荡：x = amplitude * sin(t * speed + phase)
-          // 覆盖 updateTarget 的 lerp，让靶在固定 z 平面左右移动
-          // frozen 标记跳过振荡（E2E 调试 moveMovingTargetsToCenter 用，让靶停在 x=0 供射线命中）
-          if (!data.frozen) {
-            mt.group.position.x = Math.sin(elapsed * cfg.moveSpeed + data.phase) * cfg.xRange;
-          }
+          // 三路线运动：horizontal/circular/pendulum 由 updateRouteTarget 按 data.route 分发
+          const cfg = {
+            moveSpeed: WEAPON_LAB_CONFIG.movingTarget.moveSpeed,
+            center: { x: 0, z: WEAPON_LAB_CONFIG.movingTarget.zPosition },
+            xRange: WEAPON_LAB_CONFIG.movingTarget.xRange,
+            circularRadius: WEAPON_LAB_CONFIG.movingTarget.circularRadius,
+            pendulumRange: WEAPON_LAB_CONFIG.movingTarget.pendulumRange,
+          };
+          updateRouteTarget(mt, delta, elapsed, cfg);
         }
       }
     }
-    updateStatsPanel(lab.panel, lab.stats.snapshot(), lab.dummies.length, lab.mode, {
-      timeLeft: lab.enemyTimeLeft,
-      hp: lab.enemyHP,
-      result: lab.enemyResult,
-    });
   };
 
   lab.dispose = () => {
@@ -331,7 +336,6 @@ export function createWeaponLab(scene, textures, camera) {
     lab.movingTargets = [];
     lab.ground.dispose();
     lab.wall.dispose();
-    lab.panel.texture.dispose();
   };
 
   // 相机初始位面向弹道墙中心，让墙在视野正中央
@@ -507,133 +511,6 @@ export function createStats() {
   return { recordShot, recordHit, recordDummyHit, recordDummyKill, recordEnemyHit, recordEnemyKill, recordMovingHit, recordMovingKill, commitMagazine, resetSession, tick, snapshot };
 }
 
-// 左上数据看板：标题 + 弹匣层 5 行 + 会话层 4 行 + 死靶层 4 行（死靶数/爆头/身体/爆头率）
-function createStatsPanel(scene) {
-  const texture = GUI.AdvancedDynamicTexture.CreateFullscreenUI("weapon-lab-ui", true, scene);
-  texture.idealWidth = 1280;
-  texture.idealHeight = 720;
-
-  const panel = new GUI.Rectangle("weapon-lab-panel");
-  panel.width = "320px";
-  panel.height = "460px";
-  panel.cornerRadius = 0;
-  panel.thickness = 4;
-  panel.color = "#151515";
-  panel.background = "rgba(20, 20, 20, 0.82)";
-  panel.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-  panel.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP;
-  panel.left = 18;
-  panel.top = 18;
-  texture.addControl(panel);
-
-  const title = textBlock("武器试验场", 22, "#ffffa0", FONT_TITLE);
-  title.height = "34px";
-  title.top = 8;
-  panel.addControl(title);
-
-  const magTitle = textBlock("弹匣", 16, "#d5d5d5", FONT_UI);
-  magTitle.height = "24px";
-  magTitle.top = 46;
-  panel.addControl(magTitle);
-
-  const magLines = [];
-  const magLabels = ["射击", "命中", "命中率", "DPS", "射速"];
-  magLabels.forEach((_, i) => {
-    const line = textBlock("", 15, "#ffffff", FONT_UI);
-    line.height = "22px";
-    line.top = 72 + i * 22;
-    panel.addControl(line);
-    magLines.push(line);
-  });
-
-  const sessTitle = textBlock("会话", 16, "#d5d5d5", FONT_UI);
-  sessTitle.height = "24px";
-  sessTitle.top = 190;
-  panel.addControl(sessTitle);
-
-  const sessLines = [];
-  const sessLabels = ["累计射击", "累计命中", "累计伤害", "会话DPS"];
-  sessLabels.forEach((_, i) => {
-    const line = textBlock("", 15, "#ffffff", FONT_UI);
-    line.height = "22px";
-    line.top = 216 + i * 22;
-    panel.addControl(line);
-    sessLines.push(line);
-  });
-
-  // 死靶区块：阶段 3 新增，显示当前死靶数、爆头/身体命中数、爆头率
-  const dummyTitle = textBlock("死靶", 16, "#d5d5d5", FONT_UI);
-  dummyTitle.height = "24px";
-  dummyTitle.top = 312;
-  panel.addControl(dummyTitle);
-
-  const dummyLines = [];
-  const dummyLabels = ["死靶数", "爆头", "身体", "爆头率"];
-  dummyLabels.forEach((_, i) => {
-    const line = textBlock("", 15, "#ffffff", FONT_UI);
-    line.height = "22px";
-    line.top = 338 + i * 22;
-    panel.addControl(line);
-    dummyLines.push(line);
-  });
-
-  return { texture, panel, magLines, sessLines, dummyLines, dummyTitle };
-}
-
-function textBlock(value, size, color, fontFamily) {
-  const block = new GUI.TextBlock();
-  block.text = value;
-  block.color = color;
-  block.fontSize = size;
-  block.fontFamily = fontFamily;
-  block.textWrapping = true;
-  block.resizeToFit = false;
-  block.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-  block.left = 12;
-  return block;
-}
-
 function randFloat(min, max) {
   return min + Math.random() * (max - min);
-}
-
-// dummiesCount/mode/enemyState 由 lab.update 传入（stats 不持有 lab 引用）
-// mode="enemy" 时共用区块显示敌人信息（时间/生命/击杀/爆头率），否则显示死靶信息
-function updateStatsPanel(panel, stats, dummiesCount, mode, enemyState) {
-  const magLabels = ["射击", "命中", "命中率", "DPS", "射速"];
-  const magValues = [stats.magazine.shots, stats.magazine.hits, `${stats.magazine.hitRate}%`, stats.magazine.dps, stats.magazine.fireRate];
-  panel.magLines.forEach((line, i) => {
-    line.text = `${magLabels[i]}：${magValues[i]}`;
-  });
-  const sessLabels = ["累计射击", "累计命中", "累计伤害", "会话DPS"];
-  const sessValues = [stats.session.shots, stats.session.hits, stats.session.damage, stats.session.dps];
-  panel.sessLines.forEach((line, i) => {
-    line.text = `${sessLabels[i]}：${sessValues[i]}`;
-  });
-  // 共用区块：enemy 模式显示敌人信息，moving 模式显示动靶信息，其他模式显示死靶信息
-  if (mode === "enemy") {
-    panel.dummyTitle.text = "敌人";
-    const timeText = enemyState?.result === "victory" ? "存活！"
-      : enemyState?.result === "defeat" ? "阵亡！"
-      : `${Math.ceil(enemyState?.timeLeft ?? 0)}s`;
-    const enemyLabels = ["时间", "生命", "击杀", "爆头率"];
-    const enemyValues = [timeText, `${enemyState?.hp ?? 0}/${WEAPON_LAB_CONFIG.enemyMode.playerHP}`, stats.enemy.kills, `${stats.enemy.headshotRate}%`];
-    panel.dummyLines.forEach((line, i) => {
-      line.text = `${enemyLabels[i]}：${enemyValues[i]}`;
-    });
-  } else if (mode === "moving") {
-    panel.dummyTitle.text = "动靶";
-    const movingLabels = ["动靶数", "爆头", "身体", "爆头率"];
-    const movingValues = [dummiesCount ?? 0, stats.moving.headshots, stats.moving.bodyshots, `${stats.moving.headshotRate}%`];
-    panel.dummyLines.forEach((line, i) => {
-      line.text = `${movingLabels[i]}：${movingValues[i]}`;
-    });
-  } else {
-    panel.dummyTitle.text = "死靶";
-    const dummyLabels = ["死靶数", "爆头", "身体", "爆头率"];
-    const dummyValues = [dummiesCount ?? 0, stats.dummy.headshots, stats.dummy.bodyshots, `${stats.dummy.headshotRate}%`];
-    panel.dummyLines.forEach((line, i) => {
-      line.text = `${dummyLabels[i]}：${dummyValues[i]}`;
-    });
-  }
 }
