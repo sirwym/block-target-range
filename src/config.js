@@ -63,37 +63,22 @@ export const ASSET_PATHS = {
     armorFiller: "assets/tac/textures/gui/armor_filler.png",
   },
   weapons: {
-    glock17: "assets/tac/weapons/glock17.png",
     m4: "assets/tac/weapons/m4.png",
     ak47: "assets/tac/weapons/ak47.png",
     awp: "assets/tac/weapons/awp.png",
-    p90: "assets/tac/weapons/p90.png",
     deagle_golden: "assets/tac/weapons/deagle_golden.png",
-    rpg7: "assets/tac/weapons/rpg7.png",
-    m107: "assets/tac/weapons/m107.png",
     m95: "assets/tac/weapons/m95.png",
   },
   weaponModels: {
-    p90: "assets/tac/models/p90/p90_model.json",
-    glock17: "assets/tac/models/glock17/glock17.json",
     m4: "assets/tac/models/m4/m4.json",
     ak47: "assets/tac/models/ak47/ak47.json",
     awp: "assets/tac/models/awp/awp.json",
     deagle_golden: "assets/tac/models/deagle_golden/deagle_golden.json",
-    rpg7: "assets/tac/models/rpg7/rpg7.json",
-    m107: "assets/tac/models/m107/m107.json",
     m95: "assets/tac/models/m95/m95.json",
   },
   // 按 weaponId 分组，每个武器的纹理键(#n) → 贴图路径映射。
   // Blockbench JSON 的 textures 对象键与这里的键对应，用于选择材质。
   weaponModelTextures: {
-    p90: {
-      "#2": "assets/tac/textures/p90/p90_1.png",
-      "#3": "assets/tac/textures/p90/bs_512.png",
-    },
-    glock17: {
-      "#4": "assets/tac/textures/glock17/glock17_gen4_3.png",
-    },
     m4: {
       "#8": "assets/tac/textures/m4/m4a1_other.png",
     },
@@ -104,94 +89,62 @@ export const ASSET_PATHS = {
       "#4": "assets/tac/textures/awp/awp_3.png",
     },
   },
-  // TaCZ V2 原生 geo 路径（9 把武器全部走原生 Bedrock geo renderer）
+  // TaCZ V2 原生 geo 路径（5 把武器全部走原生 Bedrock geo renderer）
   // 阶段 0：补全 5 把旧武器的 geo 路径，文件名用 display 命名空间中的武器名
   taczGeoModels: {
-    glock17: "assets/tacz/geo_models/gun/glock_17_geo.json",
     m4: "assets/tacz/geo_models/gun/m4a1_geo.json",
     ak47: "assets/tacz/geo_models/gun/ak47_geo.json",
     awp: "assets/tacz/geo_models/gun/ai_awp_geo.json",
-    p90: "assets/tacz/geo_models/gun/p90_geo.json",
     deagle_golden: "assets/tacz/geo_models/gun/deagle_golden_geo.json",
-    rpg7: "assets/tacz/geo_models/gun/rpg7_geo.json",
-    m107: "assets/tacz/geo_models/gun/m107_geo.json",
     m95: "assets/tacz/geo_models/gun/m95_geo.json",
   },
   // TaCZ V2 原生贴图（diffuse，路径符合 tacz:gun/uv/{weapon} → {weapon}/{weapon}.png 约定）
   taczWeaponTextures: {
-    glock17: "assets/tac/textures/glock_17/glock_17.png",
     m4: "assets/tac/textures/m4a1/m4a1.png",
     ak47: "assets/tac/textures/ak47/ak47.png",
     awp: "assets/tac/textures/ai_awp/ai_awp.png",
-    p90: "assets/tac/textures/p90/p90.png",
     deagle_golden: "assets/tac/textures/deagle_golden/deagle_golden.png",
-    rpg7: "assets/tac/textures/rpg7/rpg7.png",
-    m107: "assets/tac/textures/m107/m107.png",
     m95: "assets/tac/textures/m95/m95.png",
   },
-  // TaCZ V2 display.json 入口（资源链解析，9 把武器全覆盖）
+  // TaCZ V2 display.json 入口（资源链解析，5 把武器全覆盖）
   taczDisplayJson: {
-    glock17: "assets/tacz/display/guns/glock_17_display.json",
     m4: "assets/tacz/display/guns/m4a1_display.json",
     ak47: "assets/tacz/display/guns/ak47_display.json",
     awp: "assets/tacz/display/guns/ai_awp_display.json",
-    p90: "assets/tacz/display/guns/p90_display.json",
     deagle_golden: "assets/tacz/display/guns/deagle_golden_display.json",
-    rpg7: "assets/tacz/display/guns/rpg7_display.json",
-    m107: "assets/tacz/display/guns/m107_display.json",
     m95: "assets/tacz/display/guns/m95_display.json",
   },
 };
 
 export const SOUND_PATHS = {
   // 开火音（V2 shoot.ogg）
-  glock17Shoot: "assets/tacz/sounds/glock17_shoot.ogg",
   m4Shoot: "assets/tacz/sounds/m4_shoot.ogg",
   ak47Shoot: "assets/tacz/sounds/ak47_shoot.ogg",
   awpShoot: "assets/tacz/sounds/awp_shoot.ogg",
-  p90Shoot: "assets/tacz/sounds/p90_shoot.ogg",
   // 空仓换弹（弹匣打空后换弹）
-  // Glock17/M4 有完整单文件；AK47/AWP/P90 只有分段音，用 magout+magin 两段
-  glock17ReloadEmpty: "assets/tacz/sounds/glock17_reload_empty.ogg",
+  // M4 有完整单文件；AK47/AWP 只有分段音，用 magout+magin 两段
   m4ReloadEmpty: "assets/tacz/sounds/m4_reload_empty.ogg",
   ak47ReloadEmptyMagout: "assets/tacz/sounds/ak47_reload_empty_magout.ogg",
   ak47ReloadEmptyMagin: "assets/tacz/sounds/ak47_reload_empty_magin.ogg",
   awpReloadEmptyMagout: "assets/tacz/sounds/awp_reload_empty_magout.ogg",
   awpReloadEmptyMagin: "assets/tacz/sounds/awp_reload_empty_magin.ogg",
-  p90ReloadEmptyMagout: "assets/tacz/sounds/p90_reload_empty_magout.ogg",
-  p90ReloadEmptyMagin: "assets/tacz/sounds/p90_reload_empty_magin.ogg",
   // 战术换弹（弹匣还有子弹时换弹）
-  glock17ReloadTactical: "assets/tacz/sounds/glock17_reload_tactical.ogg",
   m4ReloadTactical: "assets/tacz/sounds/m4_reload_tactical.ogg",
   ak47ReloadTacticalMagout: "assets/tacz/sounds/ak47_reload_tactical_magout.ogg",
   ak47ReloadTacticalMagin: "assets/tacz/sounds/ak47_reload_tactical_magin.ogg",
   awpReloadTacticalMagout: "assets/tacz/sounds/awp_reload_tactical_magout.ogg",
   awpReloadTacticalMagin: "assets/tacz/sounds/awp_reload_tactical_magin.ogg",
-  p90ReloadTacticalMagout: "assets/tacz/sounds/p90_reload_tactical_magout.ogg",
-  p90ReloadTacticalMagin: "assets/tacz/sounds/p90_reload_tactical_magin.ogg",
   // 抽枪音（V2 draw.ogg，每把枪独立）
-  glock17Draw: "assets/tacz/sounds/glock17_draw.ogg",
   m4Draw: "assets/tacz/sounds/m4_draw.ogg",
   ak47Draw: "assets/tacz/sounds/ak47_draw.ogg",
   awpDraw: "assets/tacz/sounds/awp_draw.ogg",
-  p90Draw: "assets/tacz/sounds/p90_draw.ogg",
-  // V2 新增 4 把武器音效
+  // V2 新增武器音效
   deagle_goldenShoot: "assets/tacz/sounds/deagle_golden_shoot.ogg",
   deagle_goldenReloadEmptyMagout: "assets/tacz/sounds/deagle_golden_reload_empty_magout.ogg",
   deagle_goldenReloadEmptyMagin: "assets/tacz/sounds/deagle_golden_reload_empty_magin.ogg",
   deagle_goldenReloadTacticalMagout: "assets/tacz/sounds/deagle_golden_reload_tactical_magout.ogg",
   deagle_goldenReloadTacticalMagin: "assets/tacz/sounds/deagle_golden_reload_tactical_magin.ogg",
   deagle_goldenDraw: "assets/tacz/sounds/deagle_golden_draw.ogg",
-  rpg7Shoot: "assets/tacz/sounds/rpg7_shoot.ogg",
-  rpg7ReloadEmpty: "assets/tacz/sounds/rpg7_reload_empty.ogg",
-  rpg7ReloadTactical: "assets/tacz/sounds/rpg7_reload_tactical.ogg",
-  rpg7Draw: "assets/tacz/sounds/rpg7_draw.ogg",
-  m107Shoot: "assets/tacz/sounds/m107_shoot.ogg",
-  m107ReloadEmptyMagout: "assets/tacz/sounds/m107_reload_empty_magout.ogg",
-  m107ReloadEmptyMagin: "assets/tacz/sounds/m107_reload_empty_magin.ogg",
-  m107ReloadTacticalMagout: "assets/tacz/sounds/m107_reload_tactical_magout.ogg",
-  m107ReloadTacticalMagin: "assets/tacz/sounds/m107_reload_tactical_magin.ogg",
-  m107Draw: "assets/tacz/sounds/m107_draw.ogg",
   m95Shoot: "assets/tacz/sounds/m95_shoot.ogg",
   m95ReloadEmptyMagout: "assets/tacz/sounds/m95_reload_empty_magout.ogg",
   m95ReloadEmptyMagin: "assets/tacz/sounds/m95_reload_empty_magin.ogg",
@@ -202,37 +155,11 @@ export const SOUND_PATHS = {
   weaponDraw: "assets/tac/sounds/draw.ogg",
 };
 
-// 第一人称视觉分层排查阶段：临时只保留 5 把枪参与运行/加载/切换。
-// 其他枪（glock17、awp、p90、rpg7）的配置、资源、动画绑定均保留，仅从运行列表过滤，便于回滚。
-export const WEAPON_ORDER = ["deagle_golden", "m107", "m95", "ak47", "m4"];
+// 第一人称视觉分层排查阶段：主力武器集为 m4/m95/deagle_golden/awp/ak47。
+// 其他枪（glock17、m107、p90、rpg7）的配置已移除，资源文件保留在 public/assets/ 下以便回滚。
+export const WEAPON_ORDER = ["m4", "m95", "deagle_golden", "awp", "ak47"];
 
 export const V2_WEAPON_ANIMATION_BINDINGS = {
-  glock17: {
-    profile: {
-      animationPath: "assets/tacz/animations/glock_17.animation.json",
-      type: "pistol",
-      playerAnimationPath: "assets/tacz/player_animator/pistol_default.player_animation.json",
-      idle: "static_idle",
-      draw: "draw",
-      putAway: "put_away",
-      shoot: "shoot",
-      reloadTactical: "reload_tactical",
-      reloadEmpty: "reload_empty",
-      inspect: "inspect",
-      inspectEmpty: "inspect_empty",
-      staticBoltCaught: "static_bolt_caught",
-    },
-    boneMap: {
-      root: "root",
-      rightHand: "righthand",
-      leftHand: "lefthand",
-      heldMagazine: ["additional_magazine", "mag_and_bullet"],
-      magazinePart: ["additional_magazine", "mag_and_bullet"],
-      slidePart: "slide",
-      constraint: "constraint",
-    },
-    calibration: { positionScale: 0.034, rootScale: 0.018, handScale: 0.034, heldDistance: 0.28, axisMap: ["x", "y", "z"], sign: [1, 1, 1] },
-  },
   m4: {
     profile: {
       animationPath: "assets/tacz/animations/m4a1.animation.json",
@@ -316,32 +243,6 @@ export const V2_WEAPON_ANIMATION_BINDINGS = {
     },
     calibration: { positionScale: 0.026, rootScale: 0.014, handScale: 0.029, heldDistance: 0.3, axisMap: ["x", "y", "z"], sign: [1, 1, 1] },
   },
-  p90: {
-    profile: {
-      animationPath: "assets/tacz/animations/p90.animation.json",
-      type: "rifle",
-      playerAnimationPath: "assets/tacz/player_animator/rifle_default.player_animation.json",
-      idle: "static_idle",
-      draw: "draw",
-      putAway: "put_away",
-      shoot: "shoot",
-      reloadTactical: "reload_tactical",
-      reloadEmpty: "reload_empty",
-      inspect: "inspect",
-      inspectEmpty: "inspect_empty",
-    },
-    boneMap: {
-      root: "root",
-      rightHand: "righthand",
-      leftHand: "lefthand",
-      heldMagazine: "p90_mag_standard",
-      magazinePart: "p90_mag_standard",
-      slidePart: ["pull", "ump45_bolt"],
-      boltPart: ["pull", "ump45_bolt"],
-      constraint: "constraint",
-    },
-    calibration: { positionScale: 0.026, rootScale: 0.006, rootRotationScale: 0, handScale: 0.028, heldDistance: 0.26, axisMap: ["x", "y", "z"], sign: [1, 1, 1] },
-  },
   deagle_golden: {
     profile: {
       animationPath: "assets/tacz/animations/deagle_golden.animation.json",
@@ -371,62 +272,6 @@ export const V2_WEAPON_ANIMATION_BINDINGS = {
     // bone 别名：inspect 动画用 Deagle，geo 中是 Deagle_golden
     boneAliases: { "Deagle": "Deagle_golden" },
     calibration: { positionScale: 0.033, rootScale: 0.017, handScale: 0.034, heldDistance: 0.28, axisMap: ["x", "y", "z"], sign: [1, 1, 1] },
-  },
-  rpg7: {
-    profile: {
-      animationPath: "assets/tacz/animations/rpg7.animation.json",
-      type: "launcher",
-      playerAnimationPath: "assets/tacz/player_animator/rifle_default.player_animation.json",
-      idle: "static_idle",
-      draw: "draw",
-      putAway: "put_away",
-      shoot: "shoot",
-      reloadTactical: "reload_empty",
-      reloadEmpty: "reload_empty",
-      inspect: "inspect",
-      inspectEmpty: "inspect_empty",
-      staticBoltCaught: "static_bolt_caught",
-    },
-    boneMap: {
-      root: "root",
-      rightHand: "righthand",
-      leftHand: "lefthand",
-      heldRocket: "mag_hand",
-      heldMagazine: "mag_hand",
-      magazinePart: "rocket",
-      constraint: "constraint",
-    },
-    calibration: { positionScale: 0.023, rootScale: 0.006, rootRotationScale: 0, handScale: 0.027, heldDistance: 0.42, axisMap: ["x", "y", "z"], sign: [1, 1, 1] },
-  },
-  m107: {
-    profile: {
-      animationPath: "assets/tacz/animations/m107.animation.json",
-      type: "sniper",
-      playerAnimationPath: "assets/tacz/player_animator/rifle_default.player_animation.json",
-      idle: "static_idle",
-      draw: "draw",
-      putAway: "put_away",
-      shoot: "shoot",
-      reloadTactical: "reload_tactical",
-      reloadEmpty: "reload_empty",
-      inspect: "inspect",
-      inspectEmpty: "inspect_empty",
-    },
-    boneMap: {
-      root: "root",
-      rightHand: "righthand",
-      leftHand: "lefthand",
-      heldMagazine: ["mags", "mag_and_bullet"],
-      magazinePart: ["mags", "mag_and_bullet"],
-      slidePart: "bolt",
-      boltPart: "bolt",
-      // m107 shoot 动画误用 m95_barrel bone 名，实际 geo 中是 gun_barrel
-      barrelPart: ["gun_barrel", "m95_barrel"],
-      constraint: "constraint",
-    },
-    // bone 别名：动画 bone 名 → geo bone 名（V2 源 copy-paste 错误修正）
-    boneAliases: { "m95_barrel": "gun_barrel" },
-    calibration: { positionScale: 0.023, rootScale: 0.006, rootRotationScale: 0, handScale: 0.027, heldDistance: 0.34, axisMap: ["x", "y", "z"], sign: [1, 1, 1] },
   },
   m95: {
     profile: {
@@ -458,26 +303,12 @@ export const V2_WEAPON_ANIMATION_BINDINGS = {
   },
 };
 
-// 第一人称 rig 校准数据：9 把武器各含 hipPose/adsPose/inspectPose/握把/枪口/瞄具/缩放等字段。
-// 数据从原 modelConfig 推导，hipPose.rotation 已并入 PI Y 翻转（旧 weapon.model.root.rotation=[0,PI,0]）。
-// 原 4 把原生武器 modelScale = viewTransform.scale * 1.05（保留旧 weapon.model.root.scaling=1.05 base）。
+// 第一人称 rig 校准数据：5 把武器各含 hipPose/adsPose/inspectPose/握把/枪口/瞄具/缩放等字段。
+// Phase3v10 基线重建：hipPose.position/rotation 重置为 [0,0,0]，由 TaCZ 原生 marker（idle_view/iron_view）自动覆盖。
+// modelScale 统一 1.0，不再用畸形值（0.32/2.5）补错误矩阵。rotationOverride 删除，让 marker rotation 生效。
 export const WEAPON_CALIBRATION = {
-  glock17: {
-    hipPose: { position: [0.56, -0.46, 1.22], rotation: [-0.08, Math.PI - 0.22, 0.02] },
-    adsPose: null,
-    inspectPose: { position: [0.35, -0.30, 0.60], rotation: [0.15, Math.PI - 0.25, 0.1] },
-    rightGrip: [0.12, -0.28, 0.05],
-    leftGrip: [0.05, -0.22, 0.25],
-    muzzle: [-0.20, 0.12, 0.45],
-    aim: [-0.20, 0.12, 0.45],
-    screenOffset: [0, 0, 0],
-    fovScale: 1,
-    modelScale: 1.40,
-    handScale: 1,
-    rootMotionScale: 1,
-  },
   m4: {
-    hipPose: { position: [0.56, -0.46, 1.22], rotation: [-0.08, Math.PI - 0.26, 0.02] },
+    hipPose: { position: [0, 0, 0], rotation: [0, 0, 0] },
     adsPose: null,
     inspectPose: { position: [0.35, -0.32, 0.65], rotation: [0.15, Math.PI - 0.25, 0.1] },
     rightGrip: [0.15, -0.32, 0.1],
@@ -486,12 +317,12 @@ export const WEAPON_CALIBRATION = {
     aim: [-0.25, 0.20, 0.55],
     screenOffset: [0, 0, 0],
     fovScale: 1,
-    modelScale: 0.88,
+    modelScale: 1.0,
     handScale: 1,
     rootMotionScale: 1,
   },
   ak47: {
-    hipPose: { position: [0.55, -0.46, 1.2], rotation: [-0.08, Math.PI - 0.25, 0.02] },
+    hipPose: { position: [0, 0, 0], rotation: [0, 0, 0] },
     adsPose: null,
     inspectPose: { position: [0.35, -0.32, 0.65], rotation: [0.15, Math.PI - 0.25, 0.1] },
     rightGrip: [0.15, -0.32, 0.1],
@@ -500,12 +331,12 @@ export const WEAPON_CALIBRATION = {
     aim: [-0.10, 0.05, 1.1],
     screenOffset: [0, 0, 0],
     fovScale: 1,
-    modelScale: 0.92,
+    modelScale: 1.0,
     handScale: 1,
     rootMotionScale: 1,
   },
   awp: {
-    hipPose: { position: [0.56, -0.46, 1.22], rotation: [-0.08, Math.PI - 0.24, 0.02] },
+    hipPose: { position: [0, 0, 0], rotation: [0, 0, 0] },
     adsPose: null,
     inspectPose: { position: [0.35, -0.30, 0.70], rotation: [0.15, Math.PI - 0.25, 0.1] },
     rightGrip: [0.15, -0.3, 0.1],
@@ -514,28 +345,12 @@ export const WEAPON_CALIBRATION = {
     aim: [-0.40, 0.15, 0.20],
     screenOffset: [0, 0, 0],
     fovScale: 1,
-    // TaCZ geo 模型默认竖直朝向，identity rotation 下投影 w≈53 偏小，
-    // 配合 modelScale=2.5 让 w≈88 达标（rotationOverride 会导致 idle 动画 progress=1 时投影爆炸，故不使用）。
-    modelScale: 2.50,
-    handScale: 1,
-    rootMotionScale: 1,
-  },
-  p90: {
-    hipPose: { position: [0.58, -0.62, 1.18], rotation: [-0.08, Math.PI - 0.2, 0.02] },
-    adsPose: null,
-    inspectPose: { position: [0.38, -0.45, 0.65], rotation: [0.15, Math.PI - 0.25, 0.1] },
-    rightGrip: [0.15, -0.42, 0.15],
-    leftGrip: [0.0, -0.38, 0.3],
-    muzzle: [-0.35, 0.24, 0.06],
-    aim: [-0.35, 0.24, 0.06],
-    screenOffset: [0, 0, 0],
-    fovScale: 1,
-    modelScale: 1.55,
+    modelScale: 1.0,
     handScale: 1,
     rootMotionScale: 1,
   },
   deagle_golden: {
-    hipPose: { position: [0.54, -0.43, 1.15], rotation: [-0.08, Math.PI - 0.22, 0.02] },
+    hipPose: { position: [0, 0, 0], rotation: [0, 0, 0] },
     adsPose: null,
     inspectPose: { position: [0.35, -0.30, 0.60], rotation: [0.15, Math.PI - 0.25, 0.1] },
     rightGrip: [0.12, -0.28, 0.05],
@@ -544,42 +359,12 @@ export const WEAPON_CALIBRATION = {
     aim: [-0.20, 0.12, 0.45],
     screenOffset: [0, 0, 0],
     fovScale: 1,
-    modelScale: 1.00 * 1.05,
-    handScale: 0.52,
-    rootMotionScale: 1.0,
-  },
-  rpg7: {
-    hipPose: { position: [0.57, -0.45, 1.20], rotation: [-0.08, Math.PI - 0.35, 0.02] },
-    adsPose: null,
-    inspectPose: { position: [0.38, -0.35, 0.70], rotation: [0.15, Math.PI - 0.30, 0.1] },
-    rightGrip: [0.15, -0.30, 0.10],
-    leftGrip: [0.10, -0.25, 0.30],
-    muzzle: [-0.25, 0.10, 0.60],
-    aim: [-0.25, 0.10, 0.60],
-    screenOffset: [0, 0, 0],
-    fovScale: 1,
-    modelScale: 1.50 * 1.05,
-    handScale: 0.44,
-    rootMotionScale: 1.0,
-  },
-  m107: {
-    hipPose: { position: [0.56, -0.46, 1.22], rotation: [-0.08, Math.PI - 0.10, 0.02] },
-    adsPose: null,
-    inspectPose: { position: [0.35, -0.30, 0.70], rotation: [0.15, Math.PI - 0.25, 0.1] },
-    rightGrip: [0.12, -0.28, 0.05],
-    leftGrip: [0.05, -0.22, 0.30],
-    muzzle: [-0.25, 0.12, 0.55],
-    aim: [-0.25, 0.12, 0.55],
-    screenOffset: [0, 0, 0],
-    fovScale: 1,
-    // TaCZ geo 模型在 idle 动画 progress≈0.88 时投影占满屏幕（w=699,h=638,minY=0）。
-    // modelScale 从 1.25 大幅降到 0.6 让投影收敛到合理范围（w≈221,h≈193）。
-    modelScale: 0.60,
-    handScale: 0.42,
-    rootMotionScale: 1.0,
+    modelScale: 1.0,
+    handScale: 1,
+    rootMotionScale: 1,
   },
   m95: {
-    hipPose: { position: [0.56, -0.46, 1.22], rotation: [-0.08, Math.PI - 0.22, 0.02] },
+    hipPose: { position: [0, 0, 0], rotation: [0, 0, 0] },
     adsPose: null,
     inspectPose: { position: [0.35, -0.30, 0.70], rotation: [0.15, Math.PI - 0.25, 0.1] },
     rightGrip: [0.12, -0.28, 0.05],
@@ -588,108 +373,53 @@ export const WEAPON_CALIBRATION = {
     aim: [-0.25, 0.12, 0.55],
     screenOffset: [0, 0, 0],
     fovScale: 1,
-    modelScale: 0.50,
-    handScale: 0.42,
-    rootMotionScale: 1.0,
+    modelScale: 1.0,
+    handScale: 1,
+    rootMotionScale: 1,
   },
 };
 
 // 第一人称 marker 后处理校准：对 TaCZ geo 中的 idle_view / iron_view / lefthand_pos / righthand_pos
-// marker position 做 per-weapon 修正。marker rotation 不做 offset（角度加法易破坏朝向）。
-// markerScale 仍保留为整体缩放（一般保持 1，仅在坐标系差异明显时使用）。
-// invertPosePosition 默认 false：对 idle_view/iron_view position 整体取反（相机 locator 坐标系转换）。
-// 实测简单全坐标取反会让 z 变负导致武器飞到相机后方，因此默认不取反，改用 per-weapon hipOffset 微调。
-// hipOffset/adsOffset/leftGripOffset/rightGripOffset 在 marker position 处理（取反+缩放）之后叠加。
-// 这些值是 TaCZ 原生 geo marker 与本项目第一人称 rig 期望姿态之间的差异校准，不是资源数据。
+// marker position 做 per-weapon 修正。
+// rotationOverride：per-weapon 朝向校准，覆盖 marker rotation=(0,0,0)。
+// [Z180实验] 临时重置rotationOverride为null，让marker原始rotation生效
+// 原来的rotationOverride（Z=π/2等）是硬调平补偿，现在补了Z180后应该不再需要
 export const WEAPON_MARKER_CALIBRATION = {
-  glock17: { markerScale: 1, invertPosePosition: false, hipOffset: [0, -0.9, 0], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0] },
-  // m4 横向投影飞出右侧（cx=901），hipOffset.x 从 0 大幅改为 -0.5 让武器左移到视口中部
-  m4: { markerScale: 1, invertPosePosition: false, hipOffset: [-0.5, -1.3, 0.4], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0] },
-  // ak47 geo 默认竖直，identity 投影 w=83,h=510 达标。rotationOverride 会导致 idle 动画 progress=1 时投影爆炸，故不使用
-  ak47: { markerScale: 1, invertPosePosition: false, hipOffset: [0, -0.4, 0.4], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0] },
-  // awp geo 默认竖直，identity 投影 w=53 偏小，配合 modelScale=2.5 让 w≈88 达标。rotationOverride 会导致 idle 动画 progress=1 时投影爆炸，故不使用
-  awp: { markerScale: 1, invertPosePosition: false, hipOffset: [0, -0.4, 0], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0] },
-  // p90 横向投影飞出右侧（cx=809），hipOffset.x 从 0 改为 -0.3 让武器左移
-  p90: { markerScale: 1, invertPosePosition: false, hipOffset: [-0.3, -1.1, 0], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0] },
-  // deagle geo 默认竖直，rotationOverride=(0,π/2,0) 转成横向，投影 w=314,h=111 合理
-  deagle_golden: { markerScale: 1, invertPosePosition: false, hipOffset: [0, -0.8, 0], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0], rotationOverride: [0, Math.PI / 2, 0] },
-  // rpg7 geo 默认竖直，rotationOverride=(0,π/2,0) 转成横向，投影 w=354,h=71 合理
-  rpg7: { markerScale: 1, invertPosePosition: false, hipOffset: [0, -0.7, 0], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0], rotationOverride: [0, Math.PI / 2, 0] },
-  m107: { markerScale: 1, invertPosePosition: false, hipOffset: [0, -1.3, 0], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0] },
-  // m95 geo 默认竖直，rotationOverride=(0,π,π/2) 转成斜向投影。hipOffset.x 从 0 改为 -0.5 让 cx 从 898 回到视口内
-  m95: { markerScale: 1, invertPosePosition: false, hipOffset: [-0.5, -1.2, 0], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0], rotationOverride: [0, Math.PI, Math.PI / 2] },
+  // hipOffset 只负责腰射屏幕持枪位：在保留 TaCZ idle_view 原生旋转的前提下，
+  // 把枪体从屏幕中线推回右下持枪区。adsOffset 独立保留，避免污染 iron_view 对准。
+  m4: { markerScale: 1, hipOffset: [0.33, 0, 0.15], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0], rotationOverride: null },
+  ak47: { markerScale: 1, hipOffset: [0.28, 0, 0], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0], rotationOverride: null },
+  awp: { markerScale: 1, hipOffset: [0.35, 0, -0.15], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0], rotationOverride: null },
+  deagle_golden: { markerScale: 1, hipOffset: [0.25, 0, 0.1], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0], rotationOverride: null },
+  m95: { markerScale: 1, hipOffset: [0.35, 0, -0.15], adsOffset: [0, 0, 0], leftGripOffset: [0, 0, 0], rightGripOffset: [0, 0, 0], rotationOverride: null },
 };
 
 // Phase2 纯静态枪模验收专用姿态：只在 URL ?taczStatic=1 / pureStatic 模式生效。
 // 不复用普通 hipOffset 或 WEAPON_MARKER_CALIBRATION，避免把静态验收校准带入 Phase3 射击、ADS 和换弹动画。
-export const PHASE2_STATIC_WEAPONS = ["deagle_golden", "m107", "m95", "ak47", "m4"];
+export const PHASE2_STATIC_WEAPONS = ["m4", "m95", "deagle_golden", "awp", "ak47"];
 
+// Phase2 静态 pose 由 searchPhase2StaticPose 搜索器输出 top 候选 + MCP 手动验证确定：
+// - m4: rotation [0,π/2,π/2] Y+Z 转 90° 让枪管横向、枪体竖立，aspectRatio 6.55（Phase3v12 修订）
+// - ak47: rotation [0,π,0] Y 轴 180° 翻转避免枪管直视相机，mainOutlierCount=0
+// - m95: rotation [0,π,π/2] Y+Z 翻转，mainOutlierCount=8 需配合 hiddenBoneCubes 隐藏 body 子树 cube
+// - awp: rotation [0,-π/2,0] Y 轴 -90° 横放长枪，mainOutlierCount=0（Phase3v12 新增）
+// - deagle_golden: rotation [0,π/2,0] Y 轴 90° 展示侧面，已通过验收
 export const PHASE2_STATIC_POSE_CALIBRATION = {
-  m4: { position: [-0.30, -0.25, 1.35], rotation: [0, 0, 0] },
-  ak47: { position: [-0.18, -0.34, 1.15], rotation: [0, 0, 0] },
-  m95: { position: [-0.30, -0.28, 1.40], rotation: [0, Math.PI, Math.PI / 2] },
-  m107: { position: [0.08, -0.32, 1.55], rotation: [0, 0, 0] },
+  deagle_golden: { position: [0, -0.3, 1.3], rotation: [0, Math.PI / 2, 0] },
+  m95: { position: [-0.2, -0.3, 2.2], rotation: [0, Math.PI, Math.PI / 2] },
+  ak47: { position: [0.6, -0.7, 1.7], rotation: [0, Math.PI, 0] },
+  m4: { position: [-0.3, -0.55, 1.4], rotation: [0.15, Math.PI / 2, Math.PI / 2] },
+  awp: { position: [0.4, -0.6, 2.1], rotation: [0, -Math.PI / 2, 0] },
 };
 
-// 9 把武器全部走 TaCZ 原生 Bedrock geo + animation 路径（Phase 5 统一迁移）
-export const TAIZ_NATIVE_WEAPONS = ["glock17", "m4", "ak47", "awp", "p90", "deagle_golden", "rpg7", "m107", "m95"];
+// 5 把武器全部走 TaCZ 原生 Bedrock geo + animation 路径（Phase 5 统一迁移）
+export const TAIZ_NATIVE_WEAPONS = ["m4", "ak47", "awp", "deagle_golden", "m95"];
 
 export function isTaczNativeWeapon(weaponId) {
   return TAIZ_NATIVE_WEAPONS.includes(weaponId);
 }
 
 export const WEAPON_CONFIG = {
-  glock17: {
-    id: "glock17",
-    label: "Glock 17",
-    slot: 1,
-    magazineSize: 17,
-    reloadDuration: 1.88,
-    fireInterval: 60 / 400,
-    automatic: false,
-    bodyDamage: 6,
-    headShotMultiplier: 1.5,
-    recoil: 0.74,
-    cameraKick: 0.004,
-    fireSound: "glock17Shoot",
-    reloadEmptySound: "glock17ReloadEmpty",
-    reloadTacticalSound: "glock17ReloadTactical",
-    drawSound: "glock17Draw",
-    // 空仓/战术换弹配置：duration=总时长(V2 cooldown)，feedTime=弹匣插入时间点(V2 feed)，soundScheme=single(单文件)/segmented(magout+magin 两段)
-    reloadEmpty:    { duration: 1.88, feedTime: 1.63, soundScheme: "single" },
-    reloadTactical: { duration: 1.50, feedTime: 1.05, soundScheme: "single" },
-    iconPath: ASSET_PATHS.weapons.glock17,
-    tracerInterval: 1,
-    // 像素准星：手枪用 dot（单点，精准瞄准）
-    crosshair: { image: ASSET_PATHS.crosshair.dot },
-    // 3D 模型配置：position/rotation/scaling 控制模型在相机坐标系中的变换，
-    // muzzleLocalPosition 是枪口锚点在武器 root 下的位置，枪口火焰会跟随该锚点。
-    modelConfig: {
-      position: [0.54, -0.43, 1.15],
-      rotation: [-0.08, -0.22, 0.02],
-      scaling: 0.95,
-      // 手枪枪管短，锚点略前推到枪口位置
-      muzzleLocalPosition: [-0.20, 0.12, 0.45],
-      // 方块手锚点（武器 root 坐标系）：右手握把，左手换弹时伸向弹匣
-      handAnchors: {
-        rightHand: [0.12, -0.28, 0.05],
-        leftHand: [0.05, -0.22, 0.25],
-      },
-      // 换弹部件绑定：显式 element index 列表驱动弹匣/套筒 pivot，避免 yRange 粗筛误选枪身。
-      reloadParts: {
-        magazine: {
-          elementIndices: [81, 82, 83, 86, 88],
-          animation: { sourcePart: "magazine", distance: 0.18, axisMap: ["x", "y", "z"], sign: [1, 1, 1], returnToBaseAtEnd: true },
-        },
-        slide: {
-          elementIndices: [112, 113, 117, 118, 119, 120, 121, 122, 123, 124],
-          animation: { sourcePart: "slide", distance: 0.08, axisMap: ["x", "y", "z"], sign: [1, 1, 1], rotationScale: 1 },
-        },
-      },
-    },
-    // 枪口火焰视觉参数：size=世界单位大小，alpha=透明度，rotationRandom=每次开火贴图随机旋转弧度
-    muzzleFlash: { size: 0.22, alpha: 0.8, rotationRandom: Math.PI * 2 },
-  },
   m4: {
     id: "m4",
     label: "M4",
@@ -829,55 +559,7 @@ export const WEAPON_CONFIG = {
     // AWP 枪火略大，配合长枪管视觉
     muzzleFlash: { size: 0.38, alpha: 0.82, rotationRandom: Math.PI * 2 },
   },
-  p90: {
-    id: "p90",
-    label: "P90",
-    slot: 5,
-    magazineSize: 50,
-    reloadDuration: 3.04,
-    fireInterval: 60 / 810,
-    automatic: true,
-    bodyDamage: 5.5,
-    headShotMultiplier: 1.25,
-    recoil: 0.46,
-    cameraKick: 0.0028,
-    fireSound: "p90Shoot",
-    // P90 无 reload 单文件，用 magout+magin 两段音
-    reloadEmptySound: { magout: "p90ReloadEmptyMagout", magin: "p90ReloadEmptyMagin" },
-    reloadTacticalSound: { magout: "p90ReloadTacticalMagout", magin: "p90ReloadTacticalMagin" },
-    drawSound: "p90Draw",
-    reloadEmpty:    { duration: 3.04, feedTime: 2.45, soundScheme: "segmented" },
-    reloadTactical: { duration: 2.71, feedTime: 2.01, soundScheme: "segmented" },
-    iconPath: ASSET_PATHS.weapons.p90,
-    modelPath: ASSET_PATHS.weaponModels.p90,
-    tracerInterval: 2,
-    // 像素准星：冲锋枪用 circle（圆圈，近距离快速瞄准）
-    crosshair: { image: ASSET_PATHS.crosshair.circle },
-    modelConfig: {
-      position: [0.58, -0.62, 1.18],
-      rotation: [-0.08, -0.2, 0.02],
-      scaling: 1.28,
-      // P90 紧凑 PDW，锚点前推贴近枪口，避免贴在枪身中间或热栏附近
-      muzzleLocalPosition: [-0.35, 0.24, 0.06],
-      handAnchors: {
-        rightHand: [0.15, -0.42, 0.15],
-        leftHand: [0.0, -0.38, 0.3],
-      },
-      reloadParts: {
-        magazine: {
-          elementIndices: [
-            79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94,
-            95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108,
-            109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122,
-          ],
-          animation: { sourcePart: "magazine", distance: 0.2, axisMap: ["x", "y", "z"], sign: [1, 1, 1], returnToBaseAtEnd: true },
-        },
-      },
-    },
-    // P90 枪火中等大小，配合紧凑枪身
-    muzzleFlash: { size: 0.3, alpha: 0.82, rotationRandom: Math.PI * 2 },
-  },
-  // ===== V2 新增 4 把武器 =====
+  // ===== V2 新增武器 =====
   deagle_golden: {
     id: "deagle_golden",
     label: "黄金沙鹰",
@@ -921,92 +603,6 @@ export const WEAPON_CONFIG = {
       reloadParts: {},
     },
     muzzleFlash: { size: 0.28, alpha: 0.85, rotationRandom: Math.PI * 2 },
-  },
-  rpg7: {
-    id: "rpg7",
-    label: "RPG-7",
-    slot: 7,
-    magazineSize: 1,
-    reloadDuration: 3.20,
-    fireInterval: 60 / 150,
-    automatic: false,
-    bodyDamage: 20,
-    headShotMultiplier: 1,
-    recoil: 2.5,
-    cameraKick: 0.02,
-    fireSound: "rpg7Shoot",
-    reloadEmptySound: "rpg7ReloadEmpty",
-    reloadTacticalSound: "rpg7ReloadTactical",
-    drawSound: "rpg7Draw",
-    reloadEmpty:    { duration: 3.20, feedTime: 2.50, soundScheme: "single" },
-    reloadTactical: { duration: 3.20, feedTime: 2.50, soundScheme: "single" },
-    iconPath: ASSET_PATHS.weapons.rpg7,
-    tracerInterval: 1,
-    crosshair: { image: "assets/tac/textures/crosshair/rpg7.png" },
-    modelConfig: {
-      position: [0.57, -0.45, 1.20],
-      rotation: [-0.08, -0.35, 0.02],
-      scaling: 1.95,
-      muzzleLocalPosition: [-0.25, 0.10, 0.60],
-      handAnchors: {
-        rightHand: [0.15, -0.30, 0.10],
-        leftHand: [0.10, -0.25, 0.30],
-      },
-      viewTransform: {
-        position: [0.57, -0.45, 1.20],
-        rotation: [-0.08, -0.35, 0.02],
-        scale: 1.50,
-        handScale: 0.44,
-        rootMotionScale: 1.0,
-      },
-      reloadParts: {},
-    },
-    muzzleFlash: { size: 0.40, alpha: 0.9, rotationRandom: Math.PI * 2 },
-    // RPG7 爆炸 AoE：直击伤害 20，命中后爆炸 120 伤害半径 3
-    explosion: { damage: 120, radius: 3, knockback: true },
-  },
-  m107: {
-    id: "m107",
-    label: "M107",
-    slot: 8,
-    magazineSize: 10,
-    reloadDuration: 5.25,
-    fireInterval: 60 / 400,
-    automatic: false,
-    bodyDamage: 55,
-    headShotMultiplier: 1.5,
-    recoil: 1.8,
-    cameraKick: 0.015,
-    fireSound: "m107Shoot",
-    reloadEmptySound: { magout: "m107ReloadEmptyMagout", magin: "m107ReloadEmptyMagin" },
-    reloadTacticalSound: { magout: "m107ReloadTacticalMagout", magin: "m107ReloadTacticalMagin" },
-    drawSound: "m107Draw",
-    reloadEmpty:    { duration: 5.25, feedTime: 4.20, soundScheme: "segmented" },
-    reloadTactical: { duration: 4.35, feedTime: 3.50, soundScheme: "segmented" },
-    iconPath: ASSET_PATHS.weapons.m107,
-    tracerInterval: 1,
-    crosshair: { image: ASSET_PATHS.crosshair.dot, hiddenByAds: true },
-    ads: { fov: 0.35, sensitivityScale: 0.5 },
-    modelConfig: {
-      position: [0.54, -0.43, 1.20],
-      rotation: [-0.08, -0.22, 0.02],
-      scaling: 1.65,
-      muzzleLocalPosition: [-0.25, 0.12, 0.55],
-      handAnchors: {
-        rightHand: [0.12, -0.28, 0.05],
-        leftHand: [0.05, -0.22, 0.30],
-      },
-      viewTransform: {
-        position: [0.54, -0.43, 1.20],
-        rotation: [-0.08, -0.22, 0.02],
-        scale: 1.00,
-        handScale: 0.42,
-        rootMotionScale: 1.0,
-      },
-      // 原生武器走 taczBoneMap 驱动 bone，reloadParts.elementIndices 不再生效
-      reloadParts: {},
-    },
-    muzzleFlash: { size: 0.35, alpha: 0.85, rotationRandom: Math.PI * 2 },
   },
   m95: {
     id: "m95",

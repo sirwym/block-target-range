@@ -44,13 +44,6 @@ test("v2 new weapons have expected damage values", () => {
   assert.equal(deagleBody.damage, 12);
   assert.equal(deagleHead.damage, Math.floor(12 * 1.8));
 
-  const rpg7Body = getHitResult("body", "zombie", WEAPON_CONFIG.rpg7);
-  assert.equal(rpg7Body.damage, 20);
-  assert.equal(rpg7Body.critical, false);
-
-  const m107Head = getHitResult("head", "zombie", WEAPON_CONFIG.m107);
-  assert.equal(m107Head.damage, Math.floor(55 * 1.5));
-
   const m95Head = getHitResult("head", "zombie", WEAPON_CONFIG.m95);
   assert.equal(m95Head.damage, Math.floor(75 * 2.5));
 });

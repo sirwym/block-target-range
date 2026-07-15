@@ -1,5 +1,5 @@
 // TaCZ 原生武器动画 bone 到 geo boneMap 映射测试
-// 验证 4 把新枪的动画 bone 名能在 geo boneMap 中解析，别名映射正确
+// 验证目标武器的动画 bone 名能在 geo boneMap 中解析，别名映射正确
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -16,14 +16,10 @@ const WEAPONS = TAIZ_NATIVE_WEAPONS;
 
 // 每把枪 geo 中必须存在的关键 bone（通用 + 武器专属）
 const EXPECTED_BONES = {
-  glock17: ["root", "righthand", "lefthand", "constraint", "slide", "magazine", "muzzle_pos"],
   m4: ["root", "righthand", "lefthand", "constraint", "mag_and_lefthand", "gun_and_righthand", "m4a1_bolt"],
   ak47: ["root", "righthand", "lefthand", "constraint", "lefthand_and_mag", "bolt", "magazine"],
   awp: ["root", "righthand", "lefthand", "constraint", "mag_and_lefthand", "bolt_group", "bolt_rotate"],
-  p90: ["root", "righthand", "lefthand", "constraint", "p90_mag_standard", "pull"],
   deagle_golden: ["root", "righthand", "lefthand", "constraint", "mag_and_lefthand", "slide2", "additional_magazine", "Deagle_golden"],
-  rpg7: ["root", "righthand", "lefthand", "constraint", "mag_hand", "rocket"],
-  m107: ["root", "righthand", "lefthand", "constraint", "gun_barrel", "bolt", "mag_and_bullet"],
   m95: ["root", "righthand", "lefthand", "constraint", "m95_bolt", "bolt", "mag_and_lefthand", "mag_and_bullet"],
 };
 
@@ -124,31 +120,7 @@ for (const weaponId of WEAPONS) {
   });
 }
 
-// ===== 测试 4：m107 别名 m95_barrel → gun_barrel =====
-
-test("m107 boneAliases 将 m95_barrel 映射到 gun_barrel", () => {
-  const boneAliases = getBoneAliases("m107");
-  assert.equal(boneAliases.m95_barrel, "gun_barrel");
-});
-
-test("m107 shoot 动画中 m95_barrel 能通过别名解析到 gun_barrel", () => {
-  const engine = new BABYLON.NullEngine();
-  const scene = new BABYLON.Scene(engine);
-  try {
-    const boneMap = loadWeaponBoneMap("m107", scene);
-    const boneAliases = getBoneAliases("m107");
-    // m107 shoot 动画使用 m95_barrel bone 名（V2 源 copy-paste 错误）
-    const shootBoneNames = loadAnimationBoneNames("m107", "shoot");
-    assert.ok(shootBoneNames.includes("m95_barrel"), "m107 shoot 动画含 m95_barrel bone");
-    const resolved = resolveInBoneMap("m95_barrel", boneMap, boneAliases);
-    assert.equal(resolved, "gun_barrel", "m95_barrel 通过别名解析到 gun_barrel");
-  } finally {
-    scene.dispose();
-    engine.dispose();
-  }
-});
-
-// ===== 测试 5：deagle 别名 Deagle → Deagle_golden =====
+// ===== 测试 4：deagle 别名 Deagle → Deagle_golden =====
 
 test("deagle_golden boneAliases 将 Deagle 映射到 Deagle_golden", () => {
   const boneAliases = getBoneAliases("deagle_golden");
@@ -203,11 +175,6 @@ test("resolveBoneWithAlias 别名目标也不存在返回 null", () => {
 test("deagle_golden reload_empty 含 mag_and_lefthand", () => {
   const boneNames = loadAnimationBoneNames("deagle_golden", "reload_empty");
   assert.ok(boneNames.includes("mag_and_lefthand"), "reload_empty 含 mag_and_lefthand");
-});
-
-test("rpg7 reload_empty 含 mag_hand", () => {
-  const boneNames = loadAnimationBoneNames("rpg7", "reload_empty");
-  assert.ok(boneNames.includes("mag_hand"), "reload_empty 含 mag_hand");
 });
 
 test("m95 reload_empty 含 m95_bolt 或 bolt", () => {

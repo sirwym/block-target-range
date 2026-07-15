@@ -177,7 +177,7 @@ export function createBreakParticles(scene, effects, position, kind) {
   }
 }
 
-// RPG7 爆炸视觉：中心闪光平面 + 24 个橙黄粒子球面扩散 + 8 个深灰烟雾
+// 爆炸视觉：中心闪光平面 + 24 个橙黄粒子球面扩散 + 8 个深灰烟雾
 // 三层叠加营造爆炸观感，全部 push 到 effects[] 由 updateTemporaryMeshes 统一更新
 export function createExplosionEffect(scene, effects, position) {
   // 中心闪光：平面 billboard 朝向相机，短生命周期高亮

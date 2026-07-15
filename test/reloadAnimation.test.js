@@ -14,8 +14,7 @@ const DEFAULT_MODEL_CONFIG = {
   },
 };
 
-const GLOCK_RELOAD_CONFIG = { duration: 1.88, feedTime: 1.63, soundScheme: "single" };
-const P90_RELOAD_CONFIG = { duration: 3.04, feedTime: 2.45, soundScheme: "segmented" };
+const DEAGLE_RELOAD_CONFIG = { duration: 1.88, feedTime: 1.63, soundScheme: "single" };
 const AWP_RELOAD_CONFIG = { duration: 3.25, feedTime: 2.85, soundScheme: "segmented" };
 
 function makeFakeHands() {
@@ -44,7 +43,7 @@ test("非换弹时左手回到 defaultPos", () => {
   updateReloadAnimation(hands, {
     reloading: false,
     reloadProgress: 0,
-    weaponId: "glock17",
+    weaponId: "deagle_golden",
     reloadConfig: null,
     modelConfig: DEFAULT_MODEL_CONFIG,
   });
@@ -53,11 +52,11 @@ test("非换弹时左手回到 defaultPos", () => {
 });
 
 test("buildReloadTimeline 4 段时间点正确", () => {
-  const tl = buildReloadTimeline(GLOCK_RELOAD_CONFIG);
-  const duration = GLOCK_RELOAD_CONFIG.duration;
-  const feedNorm = GLOCK_RELOAD_CONFIG.feedTime / duration;
+  const tl = buildReloadTimeline(DEAGLE_RELOAD_CONFIG);
+  const duration = DEAGLE_RELOAD_CONFIG.duration;
+  const feedNorm = DEAGLE_RELOAD_CONFIG.feedTime / duration;
   assert.ok(tl.reach.start === 0, "reach 从 0 开始");
-  assert.equal(tl.reach.end, (GLOCK_RELOAD_CONFIG.feedTime * 0.5) / duration, "reach 结束于归一化 magoutTime");
+  assert.equal(tl.reach.end, (DEAGLE_RELOAD_CONFIG.feedTime * 0.5) / duration, "reach 结束于归一化 magoutTime");
   assert.ok(tl.pull.start < tl.pull.end, "pull 段有时长");
   assert.ok(tl.insert.start === tl.pull.end, "insert 衔接 pull");
   assert.equal(tl.insert.end, feedNorm, "insert 结束于归一化 feedTime");
@@ -65,49 +64,36 @@ test("buildReloadTimeline 4 段时间点正确", () => {
   assert.equal(tl.return.end, 1, "return 结束于 1");
 });
 
-test("P90 弹匣位 y 分量为正（向上）", () => {
-  const defaultPos = DEFAULT_MODEL_CONFIG.handAnchors.leftHand;
-  const magPos = getMagPos(defaultPos, "p90");
-  assert.ok(magPos[1] > defaultPos[1], "P90 magPos y 大于 defaultPos y");
-});
-
 test("其他枪弹匣位 y 分量为负（向下）", () => {
   const defaultPos = DEFAULT_MODEL_CONFIG.handAnchors.leftHand;
-  for (const weaponId of ["glock17", "m4", "ak47", "awp"]) {
-    const magPos = getMagPos(defaultPos, weaponId);
+  for (const weaponId of ["deagle_golden", "m4", "ak47", "awp"]) {
+    const magPos = getMagPos(defaultPos);
     assert.ok(magPos[1] < defaultPos[1], `${weaponId} magPos y 小于 defaultPos y`);
   }
 });
 
-test("P90 拔出位 y 比弹匣位更高", () => {
-  const defaultPos = DEFAULT_MODEL_CONFIG.handAnchors.leftHand;
-  const magPos = getMagPos(defaultPos, "p90");
-  const pullPos = getPullPos(magPos, "p90");
-  assert.ok(pullPos[1] > magPos[1], "P90 pullPos y 大于 magPos y");
-});
-
 test("其他枪拔出位 y 比弹匣位更低", () => {
   const defaultPos = DEFAULT_MODEL_CONFIG.handAnchors.leftHand;
-  const magPos = getMagPos(defaultPos, "glock17");
-  const pullPos = getPullPos(magPos, "glock17");
-  assert.ok(pullPos[1] < magPos[1], "glock17 pullPos y 小于 magPos y");
+  const magPos = getMagPos(defaultPos);
+  const pullPos = getPullPos(magPos);
+  assert.ok(pullPos[1] < magPos[1], "deagle_golden pullPos y 小于 magPos y");
 });
 
 test("sampleLeftHandPose progress=0 返回 defaultPos", () => {
-  const tl = buildReloadTimeline(GLOCK_RELOAD_CONFIG);
-  const pose = sampleLeftHandPose(0, tl, "glock17", DEFAULT_MODEL_CONFIG);
+  const tl = buildReloadTimeline(DEAGLE_RELOAD_CONFIG);
+  const pose = sampleLeftHandPose(0, tl, "deagle_golden", DEFAULT_MODEL_CONFIG);
   assert.deepEqual(pose.position, DEFAULT_MODEL_CONFIG.handAnchors.leftHand);
 });
 
 test("sampleLeftHandPose progress=1 返回 defaultPos", () => {
-  const tl = buildReloadTimeline(GLOCK_RELOAD_CONFIG);
-  const pose = sampleLeftHandPose(1, tl, "glock17", DEFAULT_MODEL_CONFIG);
+  const tl = buildReloadTimeline(DEAGLE_RELOAD_CONFIG);
+  const pose = sampleLeftHandPose(1, tl, "deagle_golden", DEFAULT_MODEL_CONFIG);
   assert.deepEqual(pose.position, DEFAULT_MODEL_CONFIG.handAnchors.leftHand);
 });
 
 test("sampleLeftHandPose progress=0.5 返回非 defaultPos", () => {
-  const tl = buildReloadTimeline(GLOCK_RELOAD_CONFIG);
-  const pose = sampleLeftHandPose(0.5, tl, "glock17", DEFAULT_MODEL_CONFIG);
+  const tl = buildReloadTimeline(DEAGLE_RELOAD_CONFIG);
+  const pose = sampleLeftHandPose(0.5, tl, "deagle_golden", DEFAULT_MODEL_CONFIG);
   const defaultPos = DEFAULT_MODEL_CONFIG.handAnchors.leftHand;
   assert.ok(
     !pose.position.every((v, i) => Math.abs(v - defaultPos[i]) < 1e-6),
@@ -191,7 +177,7 @@ test("updateReloadAnimation 传 controller 时驱动 magazinePivot", () => {
     },
     slide: null,
   };
-  setAnimationCache("glock17", { empty: mockAnim, tactical: null });
+  setAnimationCache("deagle_golden", { empty: mockAnim, tactical: null });
 
   const hands = makeFakeHands();
   const { magazinePivot, slidePivot, engine, scene } = makeFakeController();
@@ -201,7 +187,7 @@ test("updateReloadAnimation 传 controller 时驱动 magazinePivot", () => {
     reloading: true,
     reloadProgress: 0.5,
     reloadIsEmpty: true,
-    weaponId: "glock17",
+    weaponId: "deagle_golden",
     reloadConfig: { duration: 1.0, feedTime: 0.5 },
     modelConfig: {
       ...DEFAULT_MODEL_CONFIG,
@@ -230,7 +216,7 @@ test("updateReloadAnimation 非换弹时 controller 的 pivot 归零", () => {
   updateReloadAnimation(hands, {
     reloading: false,
     reloadProgress: 0,
-    weaponId: "glock17",
+    weaponId: "deagle_golden",
     reloadConfig: null,
     modelConfig: DEFAULT_MODEL_CONFIG,
     controller,

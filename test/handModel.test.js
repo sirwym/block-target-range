@@ -36,15 +36,15 @@ function makeScene() {
 
 test("createHands 返回含 leftHand 和 rightHand 的对象", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "glock17", MODEL_CONFIG);
+  const hands = createHands(scene, root, "deagle_golden", MODEL_CONFIG);
   assert.ok(hands.leftHand, "有 leftHand");
   assert.ok(hands.rightHand, "有 rightHand");
-  assert.equal(hands.weaponId, "glock17");
+  assert.equal(hands.weaponId, "deagle_golden");
 });
 
 test("每只手有 root 和 palm mesh", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "glock17", MODEL_CONFIG);
+  const hands = createHands(scene, root, "deagle_golden", MODEL_CONFIG);
   for (const side of ["leftHand", "rightHand"]) {
     assert.ok(hands[side].root, `${side} 有 root`);
     assert.ok(hands[side].forearm, `${side} 有 forearm`);
@@ -78,14 +78,14 @@ test("手部 mesh 不可拾取", () => {
 
 test("updateHands recoil=0 时右手 z 位置等于 defaultPos[2]", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "p90", MODEL_CONFIG);
+  const hands = createHands(scene, root, "m4", MODEL_CONFIG);
   updateHands(hands, { recoil: 0, reloading: false, reloadProgress: 0 });
   assert.equal(hands.rightHand.root.position.z, MODEL_CONFIG.handAnchors.rightHand[2]);
 });
 
 test("updateHands recoil>0 时右手 z 位置小于 defaultPos[2]（后仰）", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "glock17", MODEL_CONFIG);
+  const hands = createHands(scene, root, "deagle_golden", MODEL_CONFIG);
   updateHands(hands, { recoil: 1, reloading: false, reloadProgress: 0 });
   assert.ok(
     hands.rightHand.root.position.z < MODEL_CONFIG.handAnchors.rightHand[2],
@@ -95,7 +95,7 @@ test("updateHands recoil>0 时右手 z 位置小于 defaultPos[2]（后仰）", 
 
 test("updateHands reloading=true 时不重置左手位置", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "glock17", MODEL_CONFIG);
+  const hands = createHands(scene, root, "deagle_golden", MODEL_CONFIG);
   // 把左手移到换弹位置
   hands.leftHand.root.position.set(0.5, -0.5, 0.5);
   updateHands(hands, { recoil: 0, reloading: true, reloadProgress: 0.5 });
@@ -107,7 +107,7 @@ test("updateHands reloading=true 时不重置左手位置", () => {
 
 test("updateHands reloading=false 时重置左手到 defaultPos", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "glock17", MODEL_CONFIG);
+  const hands = createHands(scene, root, "deagle_golden", MODEL_CONFIG);
   hands.leftHand.root.position.set(0.5, -0.5, 0.5);
   updateHands(hands, { recoil: 0, reloading: false, reloadProgress: 0 });
   assert.deepEqual(
@@ -122,7 +122,7 @@ test("updateHands hands 为 null 时不报错", () => {
 
 test("disposeHands 后手部 mesh 已销毁", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "glock17", MODEL_CONFIG);
+  const hands = createHands(scene, root, "deagle_golden", MODEL_CONFIG);
   const leftRootName = hands.leftHand.root.name;
   disposeHands(hands);
   assert.ok(!scene.getNodeByName(leftRootName), "dispose 后 leftHand root 已从场景移除");
@@ -219,7 +219,7 @@ test("原生 TaCZ 手部姿态支持每只手独立 visualScale 和 positionOffs
 
 test("每只手有 wrist mesh 且 parent === palm", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "glock17", MODEL_CONFIG);
+  const hands = createHands(scene, root, "deagle_golden", MODEL_CONFIG);
   for (const side of ["leftHand", "rightHand"]) {
     assert.ok(hands[side].wrist, `${side} 有 wrist`);
     assert.equal(hands[side].wrist.parent, hands[side].palm, `${side} wrist.parent === palm`);
@@ -236,7 +236,7 @@ test("WRIST_SIZE 从 _TEST_ONLY 导出且尺寸合理", () => {
 
 test("applyPlayerAnimationPose 把 right_arm rotation 应用到 forearm", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "glock17", MODEL_CONFIG);
+  const hands = createHands(scene, root, "deagle_golden", MODEL_CONFIG);
   // 构造 mock player_animation 数据（Bedrock 格式，度数）
   const mockPlayerAnim = {
     format_version: "1.8.0",
@@ -271,7 +271,7 @@ test("applyPlayerAnimationPose 把 right_arm rotation 应用到 forearm", () => 
 
 test("applyPlayerAnimationPose null 安全", () => {
   const { scene, root } = makeScene();
-  const hands = createHands(scene, root, "glock17", MODEL_CONFIG);
+  const hands = createHands(scene, root, "deagle_golden", MODEL_CONFIG);
   assert.equal(applyPlayerAnimationPose(null, {}, "idle", 0), false, "hands=null 返回 false");
   assert.equal(applyPlayerAnimationPose(hands, null, "idle", 0), false, "playerAnimationData=null 返回 false");
   assert.equal(applyPlayerAnimationPose(hands, {}, "idle", 0), false, "空 playerAnimationData 返回 false");

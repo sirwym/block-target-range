@@ -1,35 +1,32 @@
 import * as BABYLON from "@babylonjs/core";
 import { applyVisibilityProfile } from "./visibilityProfile.js";
+import { bedrockRotationQuaternionZYX, convertBonePivot } from "./taczBedrockCoordinate.js";
 
 // TaCZ 原生 Bedrock geo renderer
 // 加载 minecraft:geometry 格式，保留 bone 层级、pivot、三轴旋转，
 // 渲染真实 per-face UV 贴图。动画系统通过 boneMap 直接驱动 bone TransformNode。
+//
+// 坐标转换严格遵循 TaCZ BedrockModel.java 语义：
+// - bone pivot：root 用 (24-pivotY)/16（眼睛高度偏移），child 用 (parentY-childY)/16（Y翻转）
+// - cube origin：origin[1] 是 cube 顶部（maxY），中心 Y = origin[1] - size[1]/2
+// - cube 相对 bone 的局部偏移：所有轴直接减法 (center-pivot)/16，不需要再翻转
 
 const DEG_TO_RAD = Math.PI / 180;
 const PIXEL_TO_UNIT = 1 / 16; // Bedrock 像素 → Babylon 单位
 
 const DEFAULT_HIDDEN_BONE_ROOTS = {
   deagle_golden: ["mag_extended_1", "mag_extended_2", "mag_extended_3", "additional_magazine"],
-  m107: ["sight_folded", "mag_extended_1", "mag_extended_2", "mag_extended_3", "bullet_shell", "bullet_shell2", "bullet_shell3"],
   m95: ["sight_folded", "mag_extended_1", "mag_extended_2", "mag_extended_3", "shell_ejection"],
 };
 
-const DEFAULT_HIDDEN_BONE_CUBES = {
-  m107: {
-    // 这些是 M107 carry handle / upper 上的远端细斜片，在第一人称透视下会脱离枪体漂到屏幕上方。
-    // 跳过 cube 渲染但保留 bone 节点，避免影响动画 boneMap。
-    upper: [18, 33, 35, 37, 40, 42, 44, 46],
-    group12: true,
-  },
-  m95: {
-    // M95 制退器最前端的上缘细片在第一人称视角中过度透视，表现为天空中的黑色碎块。
-    M: [16, 17, 34, 35, 40, 41],
-  },
-};
+// Phase3v9：DEFAULT_HIDDEN_BONE_CUBES 全部清空，outlier cube 隐藏规则由 visibilityProfile.js 驱动，
+// 等待 MCP 重新诊断后添加最小规则集
+const DEFAULT_HIDDEN_BONE_CUBES = {};
 
 const MAIN_STRUCTURE_BONES = new Set([
   "gun_body",
   "barrel",
+  "barrel3", // ak47 枪管组件（无 cubes，只是层级节点）
   "sights",
   "fore_sight",
   "handguard2",
@@ -80,31 +77,16 @@ function createHiddenCubeMatcher(weaponId, optionHiddenCubes = {}, profileHidden
   };
 }
 
-// Bedrock 旋转顺序：TaCZ mod 实测为 ZXY（先 Z 后 X 再 Y）
-// Microsoft Learn 官方文档说 Bedrock 默认是 X-then-Y-then-Z，但 TaCZ mod 的渲染器
-// 实际使用 ZXY 顺序（XYZ 顺序在 m95 上导致 minY=0 散架，ZXY 顺序下正常）
-// Babylon.js TransformNode.rotation 默认 YXZ 顺序，与 TaCZ 不一致
-// 用 Quaternion 显式构造 ZXY 顺序，避免 Euler 顺序歧义
-// 四元数 q = qA * qB 表示先应用 qB 再应用 qA，所以 ZXY 顺序对应 q = qY * qX * qZ
+// Bedrock 旋转顺序：TaCZ BedrockPart.translateAndRotateAndScale 的 mulPose(Z,Y,X) 是 post-multiply，
+// 矩阵 = R_Z * R_Y * R_X，四元数 q = q_Z * q_Y * q_X。
+// 详见 taczBedrockCoordinate.js 的 bedrockRotationQuaternionZYX 数学推导。
 function applyBedrockRotation(node, rotationDeg) {
-  const x = rotationDeg[0] * DEG_TO_RAD;
-  const y = rotationDeg[1] * DEG_TO_RAD;
-  const z = rotationDeg[2] * DEG_TO_RAD;
-  const qZ = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Z, z);
-  const qX = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.X, x);
-  const qY = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y, y);
-  node.rotationQuaternion = qY.multiply(qX).multiply(qZ);
+  node.rotationQuaternion = bedrockRotationQuaternionZYX(rotationDeg);
 }
 
-// 从 Bedrock 旋转角度构造 ZXY 顺序四元数（不依赖 node，用于 delta 组合）
+// 从 Bedrock 旋转角度构造 ZYX 顺序四元数（不依赖 node，用于 delta 组合）
 function bedrockRotationQuaternion(rotationDeg) {
-  const x = (rotationDeg[0] ?? 0) * DEG_TO_RAD;
-  const y = (rotationDeg[1] ?? 0) * DEG_TO_RAD;
-  const z = (rotationDeg[2] ?? 0) * DEG_TO_RAD;
-  const qZ = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Z, z);
-  const qX = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.X, x);
-  const qY = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y, y);
-  return qY.multiply(qX).multiply(qZ);
+  return bedrockRotationQuaternionZYX(rotationDeg);
 }
 
 // Bedrock geo 6 面顶点定义（相对 cube 中心，已转 Babylon 单位）
@@ -250,6 +232,18 @@ function subtractUnitVector(a, b) {
     ((a[0] ?? 0) - (b[0] ?? 0)) * PIXEL_TO_UNIT,
     ((a[1] ?? 0) - (b[1] ?? 0)) * PIXEL_TO_UNIT,
     ((a[2] ?? 0) - (b[2] ?? 0)) * PIXEL_TO_UNIT,
+  ];
+}
+
+// 相对位置计算（Y轴翻转），用于 cube 相对于 pivot 的位置
+// 对照 TaCZ BedrockModel.convertOrigin L314-320：
+// - X/Z: cube 中心 - pivot（不翻转）
+// - Y: pivot - cube 中心（翻转），因为 Bedrock 格式 Y 轴在 cube origin 语义上是反的
+function subtractUnitVectorYFlip(child, parent) {
+  return [
+    ((child[0] ?? 0) - (parent[0] ?? 0)) * PIXEL_TO_UNIT,
+    ((parent[1] ?? 0) - (child[1] ?? 0)) * PIXEL_TO_UNIT,
+    ((child[2] ?? 0) - (parent[2] ?? 0)) * PIXEL_TO_UNIT,
   ];
 }
 
@@ -541,32 +535,41 @@ export function createTaczGeoModel(scene, geoJson, textureUrl, options = {}) {
     boneDataMap.set(bone.name, bone);
   }
 
+  // 找到真正的 root bone（name === "root"），获取其 pivot 用于顶层定位组
+  const rootBone = bones.find((b) => b.name === "root");
+  const rootPivot = rootBone?.pivot || [0, 24, 0];
+
   // 第二层：设置 parent / bind-pose local position / rotation。
   // Bedrock geo 的 bone.pivot 是 bind pose（未旋转初始姿态）下的模型空间坐标。
-  // 转成 Babylon 层级时，bone local position 应为当前 pivot 与父 pivot 的差值，
-  // 不能在父级已旋转的 world matrix 中用 setAbsolutePosition 反算 local。
-  // 旧实现用 setAbsolutePosition 试图让 bone 世界坐标 = pivot 坐标，但父 bone 有旋转时
-  // 会让子 bone 的 local position 被父旋转矩阵变换，导致 cube 不跟随 bone 旋转（层级解体）。
-  // bind-pose 差值方案：local position = (pivot - parentPivot) * PIXEL_TO_UNIT，
-  // rotation 作为节点局部旋转，Babylon 会自动把子节点 local position 用父旋转变换，
-  // 这样子 bone/cube 会正确跟随父 bone 旋转，符合 Bedrock 模型语义。
+  // 严格使用 convertBonePivot 转换 pivot（对照 TaCZ BedrockModel.convertPivot L280-294）：
+  // - 顶层bone（bone.parent === null）：包括root、view、positioning、camera等，
+  //   统一使用顶层公式 localY=(24-pivotY)/16（24像素眼睛高度偏移），
+  //   X/Z=pivot/16。它们直接挂在geo-root TransformNode下，彼此平行。
+  // - 子bone（有parent）：localY=(parentPivotY-pivotY)/16（Y翻转），X/Z=(child-parent)/16。
+  //
+  // 关键架构说明：view/positioning/camera等第一人称定位组在Bedrock geo中是顶层bone，
+  // 与root平行，不是root的子节点。buildBonePath从marker向上遍历到顶层bone即终止，
+  // 不强制追溯到root。root是唯一包含cubes的顶层bone，其他顶层bone是空定位组。
   for (const bone of bones) {
     const node = boneMap.get(bone.name);
     const pivot = bone.pivot || [0, 0, 0];
 
+    // 判定顶层bone：geo中bone.parent为null（包括root、view、positioning、camera）
+    const isTopLevel = !bone.parent;
+    let parentName = bone.parent || null;
     let parentPivot = [0, 0, 0];
+
     if (bone.parent) {
       const parentNode = boneMap.get(bone.parent);
       node.parent = parentNode || root;
-      // 从原始 bone 数据查父 pivot，不依赖父节点已设置的 position
       const parentData = boneDataMap.get(bone.parent);
       if (parentData?.pivot) parentPivot = parentData.pivot;
     } else {
+      // 顶层bone（无parent）：直接挂在geo-root TransformNode下，不链接到root bone
       node.parent = root;
     }
 
-    // bone local position = (bone.pivot - parentBone.pivot) * PIXEL_TO_UNIT
-    const boneLocal = subtractUnitVector(pivot, parentPivot);
+    const boneLocal = convertBonePivot(pivot, isTopLevel ? null : parentPivot, isTopLevel);
     node.position.set(...boneLocal);
 
     // bone rotation → node.rotationQuaternion（ZXY 顺序，TaCZ mod 原生格式）
@@ -578,8 +581,8 @@ export function createTaczGeoModel(scene, geoJson, textureUrl, options = {}) {
     };
     debugGeometry.bones.push({
       boneName: bone.name,
-      parent: bone.parent ?? null,
-      boneParent: bone.parent ?? null,
+      parent: parentName,
+      boneParent: parentName,
       originalPivot: cloneVectorArray(pivot),
       parentPivot: cloneVectorArray(parentPivot),
       localPosition: boneLocal,
@@ -620,7 +623,13 @@ export function createTaczGeoModel(scene, geoJson, textureUrl, options = {}) {
 
       const cubeRotation = cube.rotation;
 
-      // cube 中心（模型空间像素坐标）= origin + size/2
+      // cube 中心（Bedrock 模型空间像素坐标）：
+      // 对照 TaCZ BedrockModel.convertOrigin L314-320：
+      // Bedrock 格式中 cube.origin[1] 是 cube 的顶部（Y 起点），cube 向下延伸 size[1] 像素，
+      // 所以 Bedrock 像素坐标中 center Y = origin[1] + size[1]/2（从 top 往下走一半）。
+      // X/Z 轴 origin 是 min corner，center = origin + size/2。
+      // 转换到 Babylon 局部位置时 Y 轴需要翻转：pivotY - centerY（而非 centerY - pivotY），
+      // 这和 bone pivot 的 Y 翻转语义一致（convertBonePivot / convertPivot）。
       const cubeCenter = [
         cube.origin[0] + cube.size[0] / 2,
         cube.origin[1] + cube.size[1] / 2,
@@ -629,25 +638,25 @@ export function createTaczGeoModel(scene, geoJson, textureUrl, options = {}) {
 
       if (cubeRotation && (cubeRotation[0] !== 0 || cubeRotation[1] !== 0 || cubeRotation[2] !== 0)) {
         // cube 有独立旋转：创建 cube pivot node
-        // cubePivotNode local position = (cube.pivot - bone.pivot) * PIXEL_TO_UNIT
-        // mesh local position = (cubeCenter - cubePivot) * PIXEL_TO_UNIT
+        // cubePivotNode local position = convertPivot(parentBone, cube) 语义（Y翻转）
+        // mesh local position = convertOrigin(cubePivot, cube) 语义（Y翻转）
         const cubePivotNode = new BABYLON.TransformNode(`${weaponId}-cube-pivot-${bone.name}-${cubeIndex}`, scene);
         cubePivotNode.parent = boneNode;
 
-        // cube.pivot 缺失时 fallback 到 cube 自身中心（origin + size/2），而非 bone.pivot
+        // cube.pivot 缺失时 fallback 到 cube 自身中心（origin+size/2），而非 bone.pivot
         // Wiki model.html 强调 pivot（旋转轴）与 origin（方块原点）是不同概念
         // cube 有独立 rotation 时应绕自身中心旋转，fallback 到 bone.pivot 会让 cube 飞离正确位置
         const cubePivot = cube.pivot || cubeCenter;
-        const cubePivotLocal = subtractUnitVector(cubePivot, bonePivot);
-        const meshLocal = subtractUnitVector(cubeCenter, cubePivot);
+        const cubePivotLocal = subtractUnitVectorYFlip(cubePivot, bonePivot);
+        const meshLocal = subtractUnitVectorYFlip(cubeCenter, cubePivot);
 
-        // cubePivotNode local = (cubePivot - bonePivot) * PIXEL_TO_UNIT
+        // cubePivotNode local = convertPivot 语义
         cubePivotNode.position.set(...cubePivotLocal);
         // cubePivotNode rotation 用 ZXY 顺序四元数（与 bone rotation 一致）
         applyBedrockRotation(cubePivotNode, cubeRotation);
         mesh.parent = cubePivotNode;
 
-        // mesh local = (cubeCenter - cubePivot) * PIXEL_TO_UNIT
+        // mesh local = convertOrigin 语义（Y翻转）
         mesh.position.set(...meshLocal);
         debugGeometry.cubes.push({
           boneName: bone.name,
@@ -658,7 +667,7 @@ export function createTaczGeoModel(scene, geoJson, textureUrl, options = {}) {
           cubeOrigin: cloneVectorArray(cube.origin),
           cubeSize: cloneVectorArray(cube.size),
           cubeCenter: cloneVectorArray(cubeCenter),
-          cubeCenterLocal: subtractUnitVector(cubeCenter, bonePivot),
+          cubeCenterLocal: subtractUnitVectorYFlip(cubeCenter, bonePivot),
           cubePivot: cloneVectorArray(cubePivot),
           cubePivotLocal,
           meshLocal,
@@ -668,9 +677,9 @@ export function createTaczGeoModel(scene, geoJson, textureUrl, options = {}) {
         });
       } else {
         // cube 无独立旋转：直接挂到 bone node
-        // mesh local = (cubeCenter - bonePivot) * PIXEL_TO_UNIT
+        // mesh local = convertOrigin 语义（Y翻转）
         mesh.parent = boneNode;
-        const meshLocal = subtractUnitVector(cubeCenter, bonePivot);
+        const meshLocal = subtractUnitVectorYFlip(cubeCenter, bonePivot);
         mesh.position.set(...meshLocal);
         debugGeometry.cubes.push({
           boneName: bone.name,
@@ -705,34 +714,40 @@ export function createTaczGeoModel(scene, geoJson, textureUrl, options = {}) {
   // === 模型居中：等效旧路径 [8,8,8] centering ===
   // Bedrock geo 的 bone pivot 不以模型中心为原点，需要计算包围盒中心并反向偏移，
   // 否则模型整体偏移、贴近相机，投影后 centerX 偏左。
-  // 性能：用 mesh.getAbsolutePosition() 取 cube 中心世界坐标，避免 refreshBoundingInfo 在 NullEngine 中的开销
-  root.computeWorldMatrix(true);
-  const min = new BABYLON.Vector3(Infinity, Infinity, Infinity);
-  const max = new BABYLON.Vector3(-Infinity, -Infinity, -Infinity);
-  for (const cube of cubes) {
-    cube.mesh.computeWorldMatrix(true);
-    const center = cube.mesh.getAbsolutePosition();
-    min.x = Math.min(min.x, center.x);
-    min.y = Math.min(min.y, center.y);
-    min.z = Math.min(min.z, center.z);
-    max.x = Math.max(max.x, center.x);
-    max.y = Math.max(max.y, center.y);
-    max.z = Math.max(max.z, center.z);
-  }
-  const modelCenter = BABYLON.Vector3.Center(min, max);
-  // 转换到 root 本地空间
-  const rootInverse = root.getWorldMatrix().clone();
-  rootInverse.invert();
-  const localCenter = BABYLON.Vector3.TransformCoordinates(modelCenter, rootInverse);
-  // 创建居中节点，偏移所有顶层 bone，让模型中心落在 root 原点
-  const centeringNode = new BABYLON.TransformNode(`${weaponId}-geo-centering`, scene);
-  centeringNode.parent = root;
-  centeringNode.position.set(-localCenter.x, -localCenter.y, -localCenter.z);
-  for (const bone of bones) {
-    if (!bone.parent) {
-      const node = boneMap.get(bone.name);
-      if (node && node.parent === root) {
-        node.parent = centeringNode;
+  // 第一人称路径（disableCentering=true）跳过此步：
+  //   TaCZ 源码 BedrockModel.java 没有居中逻辑，marker inverse 读取的是 bone 本地 path，
+  //   如果额外平移模型但 marker.position 仍按原始层级算，会导致 idle_view/iron_view 定位错乱。
+  let centeringNode = null;
+  if (!options.disableCentering) {
+    // 性能：用 mesh.getAbsolutePosition() 取 cube 中心世界坐标，避免 refreshBoundingInfo 在 NullEngine 中的开销
+    root.computeWorldMatrix(true);
+    const min = new BABYLON.Vector3(Infinity, Infinity, Infinity);
+    const max = new BABYLON.Vector3(-Infinity, -Infinity, -Infinity);
+    for (const cube of cubes) {
+      cube.mesh.computeWorldMatrix(true);
+      const center = cube.mesh.getAbsolutePosition();
+      min.x = Math.min(min.x, center.x);
+      min.y = Math.min(min.y, center.y);
+      min.z = Math.min(min.z, center.z);
+      max.x = Math.max(max.x, center.x);
+      max.y = Math.max(max.y, center.y);
+      max.z = Math.max(max.z, center.z);
+    }
+    const modelCenter = BABYLON.Vector3.Center(min, max);
+    // 转换到 root 本地空间
+    const rootInverse = root.getWorldMatrix().clone();
+    rootInverse.invert();
+    const localCenter = BABYLON.Vector3.TransformCoordinates(modelCenter, rootInverse);
+    // 创建居中节点，偏移所有顶层 bone，让模型中心落在 root 原点
+    centeringNode = new BABYLON.TransformNode(`${weaponId}-geo-centering`, scene);
+    centeringNode.parent = root;
+    centeringNode.position.set(-localCenter.x, -localCenter.y, -localCenter.z);
+    for (const bone of bones) {
+      if (!bone.parent) {
+        const node = boneMap.get(bone.name);
+        if (node && node.parent === root) {
+          node.parent = centeringNode;
+        }
       }
     }
   }
@@ -791,6 +806,7 @@ export function createTaczGeoModel(scene, geoJson, textureUrl, options = {}) {
   return {
     root,
     boneMap,
+    boneDataMap,
     cubes,
     centeringNode,
     textureWidth,

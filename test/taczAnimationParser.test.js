@@ -13,7 +13,7 @@ function loadWeaponAnimation(weaponId) {
   return parseTaczAnimationJson(json, profile.animationPath);
 }
 
-test("9 把枪都有 TaCZ animation.json 与 player animator 配置", () => {
+test("5 把目标武器都有 TaCZ animation.json 与 player animator 配置", () => {
   for (const weaponId of WEAPON_ORDER) {
     const profile = WEAPON_CONFIG[weaponId].v2AnimationProfile;
     assert.ok(profile?.animationPath, `${weaponId} has animationPath`);
@@ -23,7 +23,7 @@ test("9 把枪都有 TaCZ animation.json 与 player animator 配置", () => {
   }
 });
 
-test("9 把枪都能解析 static_idle/reload/shoot/inspect 与左右手 bone", () => {
+test("5 把目标武器都能解析 static_idle/reload/shoot/inspect 与左右手 bone", () => {
   for (const weaponId of WEAPON_ORDER) {
     const data = loadWeaponAnimation(weaponId);
     const profile = WEAPON_CONFIG[weaponId].v2AnimationProfile;
@@ -62,15 +62,15 @@ test("TaCZ parser 支持数组关键帧、pre/post 和 catmullrom", () => {
   assert.ok(sample.bones.test.position[0] > 0, "catmullrom position samples");
 });
 
-test("组合骨骼能按武器采样：M4/AK/RPG/AWP/M95", () => {
+test("组合骨骼能按武器采样：M4/AK/Deagle/AWP/M95", () => {
   const m4 = sampleAnimation(loadWeaponAnimation("m4"), "reload_tactical", 0.8);
   assert.ok(m4.bones.mag_and_lefthand, "M4 samples mag_and_lefthand");
 
   const ak = sampleAnimation(loadWeaponAnimation("ak47"), "inspect", 1.0);
   assert.ok(ak.bones.lefthand_and_mag, "AK47 samples lefthand_and_mag");
 
-  const rpg = sampleAnimation(loadWeaponAnimation("rpg7"), "reload_empty", 1.0);
-  assert.ok(rpg.bones.mag_hand, "RPG7 samples mag_hand");
+  const deagle = sampleAnimation(loadWeaponAnimation("deagle_golden"), "reload_empty", 1.0);
+  assert.ok(deagle.bones.mag_and_lefthand, "Deagle samples mag_and_lefthand");
 
   const awp = sampleAnimation(loadWeaponAnimation("awp"), "bolt", 0.7);
   assert.ok(awp.bones.bolt_group || awp.bones.bolt_rotate, "AWP samples bolt bones");

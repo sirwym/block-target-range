@@ -108,7 +108,7 @@ test.describe("武器试验场 weaponLab", () => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
     // 多开几发生成弹孔分布，便于人工查看看板数据和弹孔位置。
-    // Glock17 半自动有 fireInterval 冷却，每次 shoot 后等待 ammo 实际减少再发下一发，
+    // m4 全自动有 fireInterval 冷却，每次 shoot 后等待 ammo 实际减少再发下一发，
     // 避免被 fireTimer 阻止；后坐力累积可能让后续脱靶，不强求全部命中。
     let lastAmmo = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot().runtime.ammo);
     for (let i = 0; i < 4; i += 1) {
@@ -223,16 +223,16 @@ test.describe("武器试验场 weaponLab", () => {
     await waitForWeaponReady(page);
     await page.keyboard.press("Tab");
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
-    // 初始 glock17，面板内 current weapon 应与底层一致
+    // 初始 m4（WEAPON_ORDER 首位），面板内 current weapon 应与底层一致
     const before = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
-    expect(before.inventoryCurrentWeaponId).toBe("glock17");
-    expect(before.currentWeaponId).toBe("glock17");
-    // 按 2 切到 m4，面板内 current weapon 应同步刷新
+    expect(before.inventoryCurrentWeaponId).toBe("m4");
+    expect(before.currentWeaponId).toBe("m4");
+    // 按 2 切到 m95，面板内 current weapon 应同步刷新
     await page.keyboard.press("Digit2");
-    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryCurrentWeaponId === "m4");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryCurrentWeaponId === "m95");
     const after = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
-    expect(after.inventoryCurrentWeaponId).toBe("m4");
-    expect(after.currentWeaponId).toBe("m4");
+    expect(after.inventoryCurrentWeaponId).toBe("m95");
+    expect(after.currentWeaponId).toBe("m95");
     expect(errors).toEqual([]);
   });
 
@@ -242,14 +242,14 @@ test.describe("武器试验场 weaponLab", () => {
     await page.keyboard.press("Tab");
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().inventoryOpen === true);
     // 面板 960×560px 居中于 1280×720 视口，左上角约 (160, 80)
-    // 中列武器槽 Grid 起始 left=300 top=290（相对面板），3×3 布局每槽 44×44px
-    // 第 2 个槽（m4, index=1）在 (0,1) 位置，中心约 (160+300+52+22, 80+290+22) = (534, 392)
+    // 中列武器槽 Grid 起始 left=300 top=290（相对面板），3 列布局每槽 44×44px
+    // 第 2 个槽（m95, index=1）在 (0,1) 位置，中心约 (160+300+52+22, 80+290+22) = (534, 392)
     // Babylon GUI 坐标可能微偏，用近似中心点击并设 2s 超时
     await page.mouse.click(534, 392);
-    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().currentWeaponId === "m4", { timeout: 2000 });
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().currentWeaponId === "m95", { timeout: 2000 });
     const after = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
-    expect(after.currentWeaponId).toBe("m4");
-    expect(after.inventoryCurrentWeaponId).toBe("m4");
+    expect(after.currentWeaponId).toBe("m95");
+    expect(after.inventoryCurrentWeaponId).toBe("m95");
     expect(errors).toEqual([]);
   });
 
@@ -294,16 +294,16 @@ test.describe("武器试验场 weaponLab", () => {
   test("切换武器后准星贴图切换", async ({ page }) => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
-    // 初始武器 glock17，准星是 dot.png
+    // 初始武器 m4，准星是 round.png
     const before = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
-    expect(before.weaponLab.crosshair).toContain("dot.png");
-    // 切到 M4（按 2 键），准星应变成 round.png
+    expect(before.weaponLab.crosshair).toContain("round");
+    // 切到 m95（按 2 键），准星应变成 dot.png
     await page.keyboard.press("Digit2");
-    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.crosshair?.includes("round"));
-    const afterM4 = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
-    expect(afterM4.weaponLab.crosshair).toContain("round");
-    // 切到 AK47（按 3 键），准星应变成 better_default.png
-    await page.keyboard.press("Digit3");
+    await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.crosshair?.includes("dot"));
+    const afterM95 = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
+    expect(afterM95.weaponLab.crosshair).toContain("dot");
+    // 切到 ak47（按 5 键），准星应变成 better_default.png
+    await page.keyboard.press("Digit5");
     await page.waitForFunction(() => window.__blockTargetRangeDebug.snapshot().weaponLab?.crosshair?.includes("better"));
     const afterAK = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
     expect(afterAK.weaponLab.crosshair).toContain("better");
@@ -371,7 +371,7 @@ test.describe("武器试验场 weaponLab", () => {
     await page.waitForTimeout(150);
     const before = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
     const totalBefore = before.weaponLab.headshots + before.weaponLab.bodyshots;
-    // 开火（Glock17 半自动，headshot damage=maxHealth=3，一击必杀）
+    // 开火（m4 自动，headshot damage=maxHealth=3，一击必杀）
     await page.evaluate(() => window.__blockTargetRangeDebug.shoot());
     await page.waitForTimeout(300);
     const after = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
@@ -383,7 +383,7 @@ test.describe("武器试验场 weaponLab", () => {
   test("死靶被击杀后 3 秒原地重生", async ({ page }) => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
-    // 切到 m95：爆头伤害 188 > 100HP，一击必杀（Glock17 爆头仅 9，需 12 发）
+    // 切到 m95：爆头伤害 188 > 100HP，一击必杀（m4 爆头约 10，需 11 发）
     await page.evaluate(() => window.__blockTargetRangeDebug.selectWeapon("m95"));
     await waitForWeaponReady(page);
     // z=6 时射线命中 head hitbox
@@ -475,7 +475,7 @@ test.describe("武器试验场 weaponLab", () => {
     await page.waitForTimeout(200);
     const before = await page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
     const totalBefore = before.weaponLab.enemyHeadshots + before.weaponLab.enemyKills;
-    // 尝试开火（Glock17 半自动），验证统计有变化
+    // 尝试开火（m4 自动），验证统计有变化
     let attempts = 0;
     let totalAfter = totalBefore;
     while (attempts < 5 && totalAfter <= totalBefore) {
@@ -609,7 +609,7 @@ test.describe("武器试验场 weaponLab", () => {
   test("射击动靶累加 movingKills 或 movingHeadshots", async ({ page }) => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
-    // 切到 m95：爆头伤害 188 > 100HP，一击必杀（Glock17 爆头仅 9，需 12 发）
+    // 切到 m95：爆头伤害 188 > 100HP，一击必杀（m4 爆头约 10，需 11 发）
     await page.evaluate(() => window.__blockTargetRangeDebug.selectWeapon("m95"));
     await waitForWeaponReady(page);
     await page.evaluate(() => window.__blockTargetRangeDebug.startMovingMode());
@@ -636,7 +636,7 @@ test.describe("武器试验场 weaponLab", () => {
   test("击杀动靶后 0.5s 重生", async ({ page }) => {
     const errors = await openWeaponLab(page);
     await waitForWeaponReady(page);
-    // 切到 m95：爆头伤害 188 > 100HP，一击必杀（Glock17 爆头仅 9，需 12 发）
+    // 切到 m95：爆头伤害 188 > 100HP，一击必杀（m4 爆头约 10，需 11 发）
     await page.evaluate(() => window.__blockTargetRangeDebug.selectWeapon("m95"));
     await waitForWeaponReady(page);
     await page.evaluate(() => window.__blockTargetRangeDebug.startMovingMode());

@@ -50,9 +50,9 @@ test("每把枪的弹匣节点有 translation 动画通道", () => {
 });
 
 test("套筒/枪栓节点名映射正确（null 表示无该部件）", () => {
-  // glock17/ak47/awp/p90 有 slide 节点，m4 无
+  // ak47/awp 有 slide 节点，m4 无（V2_FILE_PREFIX 仅含 m4/ak47/awp 三把目标武器）
   assert.equal(SLIDE_NODE_NAMES.m4, null, "m4 has no slide node");
-  for (const weaponId of ["glock17", "ak47", "awp", "p90"]) {
+  for (const weaponId of ["ak47", "awp"]) {
     const gltf = loadGltf(weaponId, "reload_empty");
     const channel = extractTranslationChannel(gltf, SLIDE_NODE_NAMES[weaponId]);
     assert.ok(channel, `${weaponId}: slide translation channel exists`);
@@ -68,13 +68,13 @@ test("AWP bolt_rotate2 rotation channel can be extracted", () => {
 });
 
 test("extractTranslationChannel 返回 null 当节点名不存在", () => {
-  const gltf = loadGltf("glock17", "reload_empty");
+  const gltf = loadGltf("ak47", "reload_empty");
   const result = extractTranslationChannel(gltf, "nonexistent_node");
   assert.equal(result, null);
 });
 
 test("extractTranslationChannel 返回 null 当节点名为 null", () => {
-  const gltf = loadGltf("glock17", "reload_empty");
+  const gltf = loadGltf("ak47", "reload_empty");
   const result = extractTranslationChannel(gltf, null);
   assert.equal(result, null);
 });
@@ -159,10 +159,10 @@ test("getV2Animation 从缓存返回动画数据", () => {
     magazine: { times: [0, 1], positions: [[0, 0, 0], [0, -0.1, 0]] },
     slide: null,
   };
-  setAnimationCache("glock17", { empty: mockData, tactical: null });
+  setAnimationCache("deagle_golden", { empty: mockData, tactical: null });
 
-  const empty = getV2Animation("glock17", true);
-  const tactical = getV2Animation("glock17", false);
+  const empty = getV2Animation("deagle_golden", true);
+  const tactical = getV2Animation("deagle_golden", false);
   assert.equal(empty, mockData, "isEmpty=true returns empty data");
   assert.equal(tactical, null, "isEmpty=false returns tactical (null in mock)");
 
@@ -171,7 +171,7 @@ test("getV2Animation 从缓存返回动画数据", () => {
 
 test("getV2Animation 返回 null 当缓存为空", () => {
   clearAnimationCache();
-  assert.equal(getV2Animation("glock17", true), null);
+  assert.equal(getV2Animation("deagle_golden", true), null);
 });
 
 test("5 把枪的 V2 动画都有实际的弹匣位移（非全零）", () => {

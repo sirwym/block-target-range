@@ -31,7 +31,7 @@ export function createGameUi(scene, { onStart, onRestart, weaponLabMode = false 
     weaponCooldownFillEl: new GUI.Rectangle("weapon-cooldown-fill"),
     // 换弹进度填充：放在 reloadbar 容器内，用动态 width 表示进度
     reloadFillEl: new GUI.Image("reload-fill", ASSET_PATHS.gui.reloadbar),
-    weaponNameEl: text("Glock 17", 18, "#ffffff", FONT_TITLE),
+    weaponNameEl: text("M4", 18, "#ffffff", FONT_TITLE),
     weaponAmmoEl: text("17 / 17", 24, "#ffffa0", FONT_TITLE),
     baseHealthEl: text("♥♥♥♥♥", 26, "#ff5555"),
     countdownEl: text("3", 92, "#ffffa0", FONT_TITLE),
@@ -67,7 +67,7 @@ export function updateHud(ui, state) {
   ui.comboTimerEl.text = state.combo >= 3 ? `COMBO x${state.combo}` : "经验充能";
   ui.timeEl.text = `${Math.ceil(state.timeLeft)}s`;
   ui.baseHealthEl.text = "♥".repeat(state.baseHealth) + "♡".repeat(GAME_CONFIG.baseHealth - state.baseHealth);
-  const weapon = state.weapons ? getCurrentWeapon(state.weapons, WEAPON_CONFIG) : WEAPON_CONFIG.glock17;
+  const weapon = state.weapons ? getCurrentWeapon(state.weapons, WEAPON_CONFIG) : WEAPON_CONFIG.m4;
   const ammo = state.weapons?.ammo?.[weapon.id] ?? weapon.magazineSize;
   ui.weaponNameEl.text = weapon.label;
   ui.weaponAmmoEl.text = state.weapons?.reloading
@@ -495,53 +495,20 @@ function buildCrosshair(texture, ui) {
   ui.hitMarkerTimer = 0;
 }
 
-// AWP 开镜瞄准镜蒙版：外圈半透明黑色遮罩 + 中心 circle.png 镜框 + 红色十字线
-// 开镜时 main.js 设 ui.scopeOverlay.isVisible = true，关镜时 false
+// 2D 瞄准镜蒙版已移除：TaCZ 原生武器模型自带瞄具/镜体结构与分划，
+// 不再叠圆圈+红色十字线+黑色外圈遮罩，避免与 3D 镜体视觉冲突。
+// 保留空 container 引用以兼容 main.js 中已有的 isVisible null 安全检查。
 function buildScopeOverlay(texture, ui) {
   const overlay = new GUI.Container("scope-overlay");
   overlay.isVisible = false;
   overlay.width = "100%";
   overlay.height = "100%";
-
-  // 外圈半透明黑色遮罩，让视野外缘变暗
-  const dim = new GUI.Rectangle("scope-dim");
-  dim.width = "100%";
-  dim.height = "100%";
-  dim.thickness = 0;
-  dim.background = "rgba(0, 0, 0, 0.55)";
-  overlay.addControl(dim);
-
-  // 中心圆形镜框：circle.png 放大到 500px，保持像素风
-  const scope = new GUI.Image("scope-circle", ASSET_PATHS.crosshair.circle);
-  scope.width = "500px";
-  scope.height = "500px";
-  scope.stretch = GUI.Image.STRETCH_UNIFORM;
-  scope.color = "#1a1a1a";
-  overlay.addControl(scope);
-
-  // 红色十字线（狙击镜准星）
-  const hLine = new GUI.Rectangle("scope-h-line");
-  hLine.width = "2px";
-  hLine.height = "500px";
-  hLine.thickness = 0;
-  hLine.background = "#ff3333";
-  hLine.alpha = 0.5;
-  overlay.addControl(hLine);
-
-  const vLine = new GUI.Rectangle("scope-v-line");
-  vLine.width = "500px";
-  vLine.height = "2px";
-  vLine.thickness = 0;
-  vLine.background = "#ff3333";
-  vLine.alpha = 0.5;
-  overlay.addControl(vLine);
-
   texture.addControl(overlay);
   ui.scopeOverlay = overlay;
 }
 
 function buildTip(texture, ui, weaponLabMode = false) {
-  // 紧凑化提示条：缩小尺寸和字号，避免换行压住画面；文案适配 9 把武器（1-9 切枪）
+  // 紧凑化提示条：缩小尺寸和字号，避免换行压住画面；文案适配 5 把武器（1-5 切枪）
   const tip = pixelPanel("tip", weaponLabMode ? 520 : 460, 28);
   tip.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
   tip.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
@@ -772,7 +739,7 @@ function buildInventoryPanel(texture, ui) {
   weaponDetailStack.left = "300px";
   weaponDetailStack.top = "60px";
   const weaponDetailEls = {
-    name: text("Glock 17", 22, "#ffffa0", FONT_TITLE),
+    name: text("M4", 22, "#ffffa0", FONT_TITLE),
     magazine: text("弹匣：17", 16, "#ffffff", FONT_UI),
     fireRate: text("射速：6.7/s", 16, "#ffffff", FONT_UI),
     damage: text("伤害：1", 16, "#ffffff", FONT_UI),
@@ -793,7 +760,7 @@ function buildInventoryPanel(texture, ui) {
   weaponDetailStack.addControl(weaponDetailEls.fireMode);
   panel.addControl(weaponDetailStack);
 
-  // 武器槽 3×3 Grid：动态适配 WEAPON_ORDER.length（当前 9 把），不写死 5
+  // 武器槽 3 列 Grid：动态适配 WEAPON_ORDER.length（当前 5 把），不写死 9
   // 每个 slot 绑定 onPointerClickObservable，通过 ui.onWeaponSlotClick 回调切枪
   const slotCount = WEAPON_ORDER.length;
   const cols = 3;

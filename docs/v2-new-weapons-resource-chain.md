@@ -1,6 +1,6 @@
 # V2 新枪资源链报告
 
-本文档记录 4 把新枪（`deagle_golden`/`rpg7`/`m107`/`m95`）的 TaCZ/V2 原生资源链，用于原生 geo renderer 加载。
+本文档记录 2 把新枪（`deagle_golden`/`m95`）的 TaCZ/V2 原生资源链，用于原生 geo renderer 加载。
 
 ## 资源路径映射规则
 
@@ -26,32 +26,6 @@
 - **动画 bones**: static_idle(lefthand/righthand/constraint), shoot(root/constraint/slide2/bullet_in_barrel/hammer/camera), reload_empty(root/mag_and_lefthand/slide2/additional_magazine/mag_and_bullet/release/bullet/bullet_in_barrel/lefthand/righthand/camera/constraint), inspect(root/mag_and_lefthand/mag_and_bullet/gun_and_righthand/Deagle/slide2/safety/additional_magazine/lefthand/righthand/camera/constraint/bullet/Deagle_golden)
 - **bone 别名问题**: inspect 动画用 `Deagle`，geo 中是 `Deagle_golden` → 代码层别名映射
 
-## rpg7
-
-- **display**: `assets/tacz/display/guns/rpg7_display.json`
-- **model**: `tacz:gun/rpg7_geo` → `assets/tacz/geo_models/gun/rpg7_geo.json`
-- **texture**: `tacz:gun/uv/rpg7` → `assets/tac/textures/rpg7/rpg7.png`（128×128）
-- **animation**: `tacz:rpg7` → `assets/tacz/animations/rpg7.animation.json`（8 个动画）
-- **use_default_animation**: `"rifle"` → `assets/tacz/player_animator/rifle_default.player_animation.json`
-- **geo bones 数量**: 118
-- **关键 bone**: root, mag_hand, rocket, rocket_head, bone2-52（尾翼）, lefthand, RPG, constraint, righthand, wood, group2, trigger, guard, deco, grip2, grip, Sight, exhaust1, Gunbody, group7-9, camera, iron_view, positioning
-- **动画 bones**: static_idle(root/lefthand/righthand/constraint/camera), shoot(root/camera), reload_empty(root/mag_hand/rocket/lefthand/righthand/camera), inspect(root/lefthand/righthand/camera)
-- **无传统弹匣**：reload 通过 mag_hand bone 驱动 rocket bone 移动到左手位置
-
-## m107
-
-- **display**: `assets/tacz/display/guns/m107_display.json`
-- **model**: `tacz:gun/m107_geo` → `assets/tacz/geo_models/gun/m107_geo.json`
-- **texture**: `tacz:gun/uv/m107` → `assets/tac/textures/m107/m107.png`（256×256）
-- **animation**: `tacz:m107` → `assets/tacz/animations/m107.animation.json`（8 个动画）
-- **use_default_animation**: `"rifle"` → `assets/tacz/player_animator/rifle_default.player_animation.json`
-- **muzzle_flash**: scale=2
-- **iron_zoom**: 机瞄放大
-- **geo bones 数量**: 189
-- **关键 bone**: root, gun_and_righthand, righthand, gun, m107, bipod_extended, sight, gun_default, body, lower3, stock, upper, grip, trigger, carry_handle, rail, switch, sightbase, constraint, shell, stock_pos, gun_barrel, muzzle_default, barrel2, muzzle_flash, muzzle_pos, bolt, bolt2, bullet_in_barrel, mag_and_bullet, bullet, magazine, bullet_in_mag, mag_standard, mag_extended_1/2/3, lefthand, view, idle_view, iron_view, positioning
-- **动画 bones**: static_idle(righthand/lefthand/root/constraint), reload_tactical(righthand/lefthand/root/mags/camera/constraint/mag_and_bullet), reload_empty(righthand/lefthand/root/camera/bolt/mags/constraint/mag_and_bullet/bullet/bullet_in_mag), shoot(m95_barrel/root/gun_barrel/constraint/bolt/camera/bullet_in_barrel)
-- **bone 别名问题**: shoot 动画误用 `m95_barrel`，geo 中无此 bone（实际是 `gun_barrel`） → 代码层别名映射
-
 ## m95
 
 - **display**: `assets/tacz/display/guns/m95_display.json`
@@ -68,9 +42,9 @@
 
 ## 当前 flat Blockbench 模型与原始 geo 的差异
 
-`convertBedrockToBlockbench.mjs` 对 4 把新枪的转换丢失：
+`convertBedrockToBlockbench.mjs` 对 2 把新枪的转换丢失：
 
-1. **bone 层级**：77~189 个 bone 被拍扁成 flat elements 数组，无父子关系
+1. **bone 层级**：77~100 个 bone 被拍扁成 flat elements 数组，无父子关系
 2. **多轴旋转**：cube.rotation/bone.rotation 仅取绝对值最大的单轴，其他两轴丢弃
 3. **祖先旋转影响**：祖先 bone 有旋转时，子 bone cube 位置未做矩阵变换
 4. **UV 数据**：per-face UV 被忽略，运行时用 CreateBox 6 面立方体 + 单色材质

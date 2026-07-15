@@ -38,7 +38,7 @@ import {
   updateWeaponState,
 } from "./weapon.js";
 import { resetHandAnimationFlags, updateHands } from "./handModel.js";
-import { loadTaczFirstPersonWeapon, updateTaczFirstPersonWeapon } from "./taczFirstPersonAdapter.js";
+import { loadTaczFirstPersonWeapon, updateFunctionalHandAnchors, updateTaczFirstPersonWeapon } from "./taczFirstPersonAdapter.js";
 import { updateReloadAnimation } from "./reloadAnimation.js";
 import { getV2Animation } from "./v2AnimationParser.js";
 import { preloadTaczAnimations } from "./taczAnimationParser.js";
@@ -102,6 +102,13 @@ const e2eMode = query.has("e2e");
 // Phase 2 纯枪模静态渲染模式：URL ?taczStatic=1 开启，仅渲染 TaCZ geo 模型 + rig，
 // 切断手臂/动画/后坐力/换弹下沉/枪口火焰/camera kick 等动态视觉干扰。
 const PURE_TACZ_STATIC = query.has("taczStatic");
+// Phase3 腰射校准专用冻结模式：URL ?phase3Hip=1 开启，保留 Phase3 真实第一人称链路
+// （hands + animationController 仍创建、rig 仍走 applyHipPose、WEAPON_MARKER_CALIBRATION 仍生效），
+// 但冻结 draw/idle/shoot/reload 动画输入、recoil/reloadDrop/ads 偏移，避免数值校准被动画干扰。
+// 不读取、不应用 PHASE2_STATIC_POSE_CALIBRATION（那是 Phase2 裸枪静态入口专用）。
+const PHASE3_HIP_DEBUG = query.has("phase3Hip");
+// 校准冻结总开关：Phase2 纯静态和 Phase3 hip 冻结都需要关闭动态视觉输入。
+const FREEZE_FOR_CALIBRATION = PURE_TACZ_STATIC || PHASE3_HIP_DEBUG;
 const textures = loadTextures(scene);
 buildLighting(scene);
 const sky = BABYLON.MeshBuilder.CreateSphere("sky-dome", { diameter: 170, segments: 16 }, scene);
@@ -165,6 +172,18 @@ const state = {
   paused: false, // Tab 面板打开时为 true，暂停倒计时/刷怪/敌人移动
 };
 
+function controllerSupportsAds(controller) {
+  return Boolean(controller?.firstPersonMarkers?.ironView || controller?.rig?.adsPose || controller?.rig?.calibration?.adsPose);
+}
+
+function currentWeaponSupportsAds() {
+  return controllerSupportsAds(getWeaponController(state.weapons.currentWeaponId));
+}
+
+function weaponUsesScopeOverlay(weapon) {
+  return weapon?.id === "awp" && Boolean(weapon.ads);
+}
+
 buildWeaponOverlay().catch((e) => {
   console.warn("[buildWeaponOverlay] failed:", e);
 });
@@ -172,6 +191,12 @@ if (weaponLabMode) {
   // weaponLab 模式：不走 resetGame（含刷怪/基地血量/倒计时），直接建试验场
   state.mode = "weaponLab";
   weaponLab = createWeaponLab(scene, textures, camera);
+  // 视觉验收入口支持 ?weapon=ak47 这类 fresh load 直达指定武器；
+  // 这里直接改初始状态，不走 selectWeaponSlot，避免页面加载时播放切枪音效。
+  const initialWeaponId = query.get("weapon");
+  if (WEAPON_CONFIG[initialWeaponId]) {
+    state.weapons = selectWeapon(state.weapons, initialWeaponId, WEAPON_CONFIG);
+  }
   // 隐藏靶场专属 HUD（Score/Time/基地血量/经验条/tip），保留准星+热栏
   hideArenaHud(ui);
   showStart(ui, false);
@@ -273,11 +298,10 @@ document.addEventListener("pointerlockchange", () => {
 canvas.addEventListener("pointerdown", (event) => {
   // inventory 面板打开时不响应射击/锁定（面板已释放鼠标，点击应穿透到 GUI）
   if (isInventoryOpen(ui)) return;
-  // 右键切换 AWP 开镜（仅 weaponLab 模式 + 当前武器是 AWP 时）
+  // 右键切换 ADS：当前 TaCZ controller 有 iron_view/adsPose 即可进入瞄准姿态。
   if (event.button === 2 && state.mode === "weaponLab") {
     event.preventDefault(); // 阻止浏览器右键默认行为干扰
-    const weapon = getCurrentWeapon(state.weapons, WEAPON_CONFIG);
-    if (weapon.id === "awp" && weapon.ads) {
+    if (currentWeaponSupportsAds()) {
       state.ads = !state.ads;
     }
     return;
@@ -369,11 +393,10 @@ function installE2eDebugHooks() {
     },
     shoot: () => shoot(),
     reload: () => reloadCurrentWeapon(),
-    // ADS 调试钩子：仅在当前武器支持 ADS（weapon.ads 配置存在）时切换 state.ads。
+    // ADS 调试钩子：当前 controller 存在 iron_view/adsPose 即可切换 state.ads。
     // 与右键交互一致，state.ads 配合 adsProgress 在每帧 lerp，E2E 可读取 adsProgress > 0.8 验证过渡。
     setAds: (enabled) => {
-      const weapon = getCurrentWeapon(state.weapons, WEAPON_CONFIG);
-      if (weapon?.ads) state.ads = Boolean(enabled);
+      if (currentWeaponSupportsAds()) state.ads = Boolean(enabled);
       return window.__blockTargetRangeDebug.snapshot();
     },
     // 死靶调试钩子：绕过 ray pick 直接在指定坐标放假人，供 E2E 精确验证
@@ -458,6 +481,7 @@ function installE2eDebugHooks() {
       return {
         mode: state.mode,
         pureTaczStatic: PURE_TACZ_STATIC,
+        phase3Hip: PHASE3_HIP_DEBUG,
         inventoryOpen: isInventoryOpen(ui),
         inventoryCurrentWeaponId: ui.inventoryContext?.currentWeaponId ?? null,
         paused: state.paused,
@@ -478,6 +502,26 @@ function installE2eDebugHooks() {
           hasHands: Boolean(controller?.hands),
           leftHandEnabled: controller?.hands?.leftHand?.root ? Boolean(controller.hands.leftHand.root.isEnabled()) : false,
           rightHandEnabled: controller?.hands?.rightHand?.root ? Boolean(controller.hands.rightHand.root.isEnabled()) : false,
+          handRoots: controller?.hands ? {
+            left: controller.rig?.leftHandRoot ? {
+              enabled: Boolean(controller.rig.leftHandRoot.isEnabled()),
+              position: [controller.rig.leftHandRoot.position.x, controller.rig.leftHandRoot.position.y, controller.rig.leftHandRoot.position.z],
+              worldPosition: (() => {
+                controller.rig.leftHandRoot.computeWorldMatrix(true);
+                const pos = controller.rig.leftHandRoot.getAbsolutePosition();
+                return [pos.x, pos.y, pos.z];
+              })(),
+            } : null,
+            right: controller.rig?.rightHandRoot ? {
+              enabled: Boolean(controller.rig.rightHandRoot.isEnabled()),
+              position: [controller.rig.rightHandRoot.position.x, controller.rig.rightHandRoot.position.y, controller.rig.rightHandRoot.position.z],
+              worldPosition: (() => {
+                controller.rig.rightHandRoot.computeWorldMatrix(true);
+                const pos = controller.rig.rightHandRoot.getAbsolutePosition();
+                return [pos.x, pos.y, pos.z];
+              })(),
+            } : null,
+          } : null,
           hasAnimationController: Boolean(controller?.animationController),
           partCount: controller?.partCount ?? 0,
           status: controller?.status ?? "missing",
@@ -495,7 +539,6 @@ function installE2eDebugHooks() {
             ? [controller.boltPivot.position.x, controller.boltPivot.position.y, controller.boltPivot.position.z]
             : null,
           heldMagazineVisible: Boolean(controller?.heldMagazinePivot?.isEnabled()),
-          heldRocketVisible: Boolean(controller?.heldRocketPivot?.isEnabled()),
           taczAnimation: controller?.animationController ? {
             status: controller.animationController.status,
             warning: controller.animationController.warning,
@@ -624,11 +667,11 @@ function installE2eDebugHooks() {
       const currentWeapon = getCurrentWeapon(state.weapons, WEAPON_CONFIG);
       return snapshotPoseVariants(weaponModels[weaponId || currentWeapon.id], weaponId || currentWeapon.id);
     },
-    searchPhase2StaticPose: (weaponId = null) => {
+    searchPhase2StaticPose: (weaponId = null, options = {}) => {
       const currentWeapon = getCurrentWeapon(state.weapons, WEAPON_CONFIG);
-      return searchPhase2StaticPose(weaponModels[weaponId || currentWeapon.id], weaponId || currentWeapon.id);
+      return searchPhase2StaticPose(weaponModels[weaponId || currentWeapon.id], weaponId || currentWeapon.id, options);
     },
-    searchPhase2StaticPoses: (weaponIds = PHASE2_STATIC_WEAPONS) => searchPhase2StaticPoses(weaponIds),
+    searchPhase2StaticPoses: (weaponIds = PHASE2_STATIC_WEAPONS, options = {}) => searchPhase2StaticPoses(weaponIds, options),
     // v4 调试：暴露 weapon controller 供 E2E 直接检查 rootEnabled 根因
     getWeaponController: (id) => weaponModels[id],
     getWeaponControllers: () => weaponModels,
@@ -983,11 +1026,18 @@ function scorePhase2StaticPoseCandidate(controller, weaponId, source) {
     + Math.max(0, bounds.maxY - (renderHeight - 24))
   ) * 0.6;
   const depthPenalty = Number.isFinite(minMainZ) && minMainZ >= 0.28 ? 0 : (0.28 - (Number.isFinite(minMainZ) ? minMainZ : 0)) * 3500;
+  // 距离惩罚：mainOutlier 离主簇超过 80px 后每像素惩罚 1.5 分，
+  // 引导搜索器选 mainOutlier 贴近主枪体的 pose（修复 ak47 远端 outlier distanceToMainCluster 过大不被惩罚的问题）
+  const mainOutlierDistancePenalty = mainOutliers.reduce((sum, o) => {
+    const dist = o.distanceToMainCluster ?? 0;
+    return sum + Math.max(0, dist - 80) * 1.5;
+  }, 0);
   const score = (
     depthPenalty
     + reliableMainOutliers.length * 320
     + mainOutliers.length * 90
     + unreliableCount * 180
+    + mainOutlierDistancePenalty
     + areaPenalty
     + centerPenalty
     + edgePenalty
@@ -1035,55 +1085,94 @@ function pushPhase2StaticCandidate(results, controller, weaponId, source) {
   results.push(scored);
 }
 
-function searchPhase2StaticPose(controller, weaponId) {
+// 规范旋转种子：覆盖 Bedrock geo 常见横向/竖直/翻转方向。
+// TaCZ geo 默认竖直朝向，phase2StaticPose.rotation=[0,0,0] 会让枪竖向穿屏。
+// 必须在 Y 轴加 π 翻转（让枪面对相机），并在 Z 轴加 π/2 让枪横向倒下。
+// 6 个种子覆盖主方向，搜索器评估后选 top 2-3 进入 position 粗搜。
+const PHASE2_CANONICAL_ROTATIONS = [
+  [0, 0, 0],
+  [0, Math.PI / 2, 0],
+  [0, Math.PI, 0],
+  [0, -Math.PI / 2, 0],
+  [0, Math.PI, Math.PI / 2],
+  [0, Math.PI / 2, Math.PI / 2],
+];
+
+// 分阶段姿态求解器：
+// Stage 0：规范旋转种子评估（记录得分供诊断）
+// Stage 1：对全部规范旋转扫 position 网格（步长 0.2 normal / 0.3 fast）
+//   z 偏移范围 [-0.4, 0.8]：允许靠近相机（更大投影）也允许稍远，避免只在远处搜到 tiny pose
+// Stage 2（仅 normal）：top 5 position 候选附近 ±0.15 精细 rotation 搜索
+// fast 模式给 E2E 用（~720 候选/枪），normal 给人工调试用（~2200 候选/枪）
+function searchPhase2StaticPose(controller, weaponId, options = {}) {
   const savedPose = cloneWeaponRootPose(controller);
   const weaponRoot = controller?.rig?.weaponRoot;
   if (!savedPose || !weaponRoot) return { weaponId, candidates: [], top: [] };
 
-  const basePose = PHASE2_STATIC_POSE_CALIBRATION[weaponId] ?? {
-    position: [savedPose.position.x, savedPose.position.y, savedPose.position.z],
-    rotation: [savedPose.rotation.x, savedPose.rotation.y, savedPose.rotation.z],
-  };
-  const xOffsets = rangeValues(-0.8, 0.4, 0.1);
-  const yOffsets = rangeValues(-0.6, 0.4, 0.1);
-  const zOffsets = rangeValues(0.2, 1.6, 0.1);
-  const rotationOffsets = rangeValues(-0.25, 0.25, 0.05);
-  const needsRotationSweep = new Set(["m4", "ak47", "m95", "m107"]).has(weaponId);
+  const fast = options.fast === true;
+  const canonicalRotations = options.canonicalRotations ?? PHASE2_CANONICAL_ROTATIONS;
+  const basePosition = PHASE2_STATIC_POSE_CALIBRATION[weaponId]?.position ?? [0, -0.3, 1.3];
+  const positionStep = fast ? 0.3 : 0.2;
+  const xOffsets = rangeValues(-0.8, 0.4, positionStep);
+  const yOffsets = rangeValues(-0.6, 0.4, positionStep);
+  // z 偏移允许负值（靠近相机）到正值（稍远），避免只在远处搜到 tiny pose
+  const zOffsets = rangeValues(-0.4, 0.8, positionStep);
   const results = [];
+  const rotationSeedScores = [];
 
   try {
-    for (const dx of xOffsets) {
-      for (const dy of yOffsets) {
-        for (const dz of zOffsets) {
-          applyWeaponRootPose(controller, {
-            position: [
-              basePose.position[0] + dx,
-              basePose.position[1] + dy,
-              basePose.position[2] + dz,
-            ],
-            rotation: basePose.rotation,
-          });
-          pushPhase2StaticCandidate(results, controller, weaponId, "position-grid");
+    // Stage 0：规范旋转种子评估（全部保留进入 Stage 1，不只选 top N）
+    // 原因：base position 下 [0,0,0] 可能因远处无 outlier 得分低，但 [0,π,0] 在更近距离才表现好。
+    // 若只选 top 2-3 旋转，会漏掉需要在特定 position 下才能发挥的旋转方向。
+    for (const rotation of canonicalRotations) {
+      applyWeaponRootPose(controller, { position: basePosition, rotation });
+      const scored = scorePhase2StaticPoseCandidate(controller, weaponId, "canonical-rotation");
+      if (scored) {
+        results.push(scored);
+        rotationSeedScores.push({ rotation, score: scored.score });
+      }
+    }
+    rotationSeedScores.sort((a, b) => a.score - b.score);
+
+    // Stage 1：对全部规范旋转扫 position 网格
+    for (const rotation of canonicalRotations) {
+      for (const dx of xOffsets) {
+        for (const dy of yOffsets) {
+          for (const dz of zOffsets) {
+            applyWeaponRootPose(controller, {
+              position: [
+                basePosition[0] + dx,
+                basePosition[1] + dy,
+                basePosition[2] + dz,
+              ],
+              rotation,
+            });
+            pushPhase2StaticCandidate(results, controller, weaponId, "position-grid");
+          }
         }
       }
     }
 
-    if (needsRotationSweep) {
+    // Stage 2（仅 normal）：top 5 position 候选附近精细 rotation 搜索
+    if (!fast) {
       const positionSeeds = [...results]
+        .filter((entry) => entry.source === "position-grid")
         .sort((a, b) => a.score - b.score)
-        .slice(0, 12);
+        .slice(0, 5);
+      const fineRotationOffsets = rangeValues(-0.15, 0.15, 0.05);
       for (const seed of positionSeeds) {
-        for (const yaw of rotationOffsets) {
-          for (const roll of rotationOffsets) {
+        const seedRotation = seed.pose.rotation;
+        for (const dyaw of fineRotationOffsets) {
+          for (const droll of fineRotationOffsets) {
             applyWeaponRootPose(controller, {
               position: seed.pose.position,
               rotation: [
-                basePose.rotation[0],
-                basePose.rotation[1] + yaw,
-                basePose.rotation[2] + roll,
+                seedRotation[0],
+                seedRotation[1] + dyaw,
+                seedRotation[2] + droll,
               ],
             });
-            pushPhase2StaticCandidate(results, controller, weaponId, "position-grid+yaw-roll");
+            pushPhase2StaticCandidate(results, controller, weaponId, "position+fine-rotation");
           }
         }
       }
@@ -1097,14 +1186,14 @@ function searchPhase2StaticPose(controller, weaponId) {
     .slice(0, 5);
   return {
     weaponId,
-    basePose,
+    basePose: { position: basePosition, rotation: null },
     candidateCount: results.length,
     searchSpace: {
-      xOffset: [-0.8, 0.4, 0.1],
-      yOffset: [-0.6, 0.4, 0.1],
-      zOffset: [0.2, 1.6, 0.1],
-      yawRollOffset: needsRotationSweep ? [-0.25, 0.25, 0.05] : null,
-      rotationSweepSeeds: needsRotationSweep ? 12 : 0,
+      canonicalRotations: canonicalRotations.length,
+      rotationsInGrid: canonicalRotations.length,
+      positionStep,
+      zOffsetRange: [-0.4, 0.8],
+      fineRotation: fast ? null : { range: [-0.15, 0.15], step: 0.05, seeds: 5 },
     },
     top,
   };
@@ -1119,7 +1208,7 @@ async function waitForRenderStateRefresh() {
   await waitForNextFrame();
 }
 
-async function searchPhase2StaticPoses(weaponIds = PHASE2_STATIC_WEAPONS) {
+async function searchPhase2StaticPoses(weaponIds = PHASE2_STATIC_WEAPONS, options = {}) {
   const originalWeaponId = state.weapons.currentWeaponId;
   const requested = Array.isArray(weaponIds) && weaponIds.length > 0 ? weaponIds : PHASE2_STATIC_WEAPONS;
   const validWeaponIds = requested.filter((weaponId) => WEAPON_ORDER.includes(weaponId));
@@ -1130,7 +1219,7 @@ async function searchPhase2StaticPoses(weaponIds = PHASE2_STATIC_WEAPONS) {
       selectWeaponSlot(WEAPON_ORDER.indexOf(weaponId));
       // root 的启用状态在主循环里刷新；等两个渲染帧后再计算屏幕投影，避免把未激活 controller 当作失败。
       await waitForRenderStateRefresh();
-      const result = searchPhase2StaticPose(weaponModels[weaponId], weaponId);
+      const result = searchPhase2StaticPose(weaponModels[weaponId], weaponId, options);
       weapons[weaponId] = result;
     }
   } finally {
@@ -1143,6 +1232,7 @@ async function searchPhase2StaticPoses(weaponIds = PHASE2_STATIC_WEAPONS) {
   return {
     generatedAt: new Date().toISOString(),
     pureTaczStatic: PURE_TACZ_STATIC,
+    phase3Hip: PHASE3_HIP_DEBUG,
     weaponIds: validWeaponIds,
     weapons,
     topSummary: validWeaponIds.map((weaponId) => {
@@ -1317,7 +1407,7 @@ async function buildWeaponOverlay() {
   muzzleFlashPlane.isPickable = false;
   muzzleFlashPlane.setEnabled(false);
 
-  // Phase 8: 9 把武器统一走 loadTaczFirstPersonWeapon adapter 路径
+  // Phase 8: 5 把武器统一走 loadTaczFirstPersonWeapon adapter 路径
   // adapter 内部创建 rig + weapon model + hands + animationController，并消费 display.json 资源链
   for (const id of WEAPON_ORDER) {
     const controller = await loadTaczFirstPersonWeapon(scene, camera, id, {
@@ -1328,7 +1418,7 @@ async function buildWeaponOverlay() {
     weaponModels[id] = controller;
   }
 
-  // 预解析 9 把枪的 TaCZ animation.json；正式运行路径不再静默退回旧四段式换弹。
+  // 预解析 5 把枪的 TaCZ animation.json；正式运行路径不再静默退回旧四段式换弹。
   preloadTaczAnimations(WEAPON_CONFIG, WEAPON_ORDER).then((results) => {
     for (const [weaponId, result] of Object.entries(results)) {
       const animationController = weaponModels[weaponId]?.animationController;
@@ -1341,7 +1431,7 @@ async function buildWeaponOverlay() {
         animationController.status = "ready";
       }
     }
-    if (!PURE_TACZ_STATIC) {
+    if (!PURE_TACZ_STATIC && !PHASE3_HIP_DEBUG) {
       playWeaponAnimationAction(weaponModels[state.weapons.currentWeaponId]?.animationController, "draw", { force: true });
     }
   }).catch((e) => {
@@ -1466,10 +1556,10 @@ function spawnDebugActors() {
 function spawnDebugWeapon() {
   camera.position.set(0, GAME_CONFIG.playerGroundY, 12);
   camera.setTarget(new BABYLON.Vector3(0, 2.1, -24));
-  state.weapons = selectWeapon(state.weapons, "p90", WEAPON_CONFIG);
+  state.weapons = selectWeapon(state.weapons, "m4", WEAPON_CONFIG);
   state.weaponRecoil = 0.2;
   state.muzzleFlashTimer = 0;
-  debugWeaponLabel = ui.addDebugLabel(weaponModels.p90?.status ?? "P90 model loading", weaponModels.p90.root, {
+  debugWeaponLabel = ui.addDebugLabel(weaponModels.m4?.status ?? "M4 model loading", weaponModels.m4.root, {
     anchorY: 0.7,
     offsetY: -82,
     width: "380px",
@@ -1482,13 +1572,13 @@ function spawnDebugWeapon() {
 function updateDebugWeapon(delta, elapsed) {
   state.weapons = updateWeaponState(state.weapons, delta, WEAPON_CONFIG);
   state.weaponRecoil = 0.18 + Math.sin(elapsed * 1.5) * 0.04;
-  if (debugWeaponLabel && weaponModels.p90) {
+  if (debugWeaponLabel && weaponModels.m4) {
     let bboxInfo = "";
     let warn = false;
-    if (weaponModels.p90.ready && weaponModels.p90.root) {
+    if (weaponModels.m4.ready && weaponModels.m4.root) {
       try {
-        weaponModels.p90.root.refreshBoundingInfo(true);
-        const bb = weaponModels.p90.root.getBoundingInfo().boundingBox;
+        weaponModels.m4.root.refreshBoundingInfo(true);
+        const bb = weaponModels.m4.root.getBoundingInfo().boundingBox;
         const sx = bb.maximumWorld.x - bb.minimumWorld.x;
         const sy = bb.maximumWorld.y - bb.minimumWorld.y;
         const sz = bb.maximumWorld.z - bb.minimumWorld.z;
@@ -1503,7 +1593,7 @@ function updateDebugWeapon(delta, elapsed) {
         bboxInfo = " | bb n/a";
       }
     }
-    debugWeaponLabel.text = `${weaponModels.p90.status ?? "loading"}${bboxInfo}${warn ? " WARN" : ""}`;
+    debugWeaponLabel.text = `${weaponModels.m4.status ?? "loading"}${bboxInfo}${warn ? " WARN" : ""}`;
     debugWeaponLabel.color = warn ? "#ff4b4b" : "#ffffa0";
   }
   updateHud(ui, state);
@@ -1549,8 +1639,8 @@ function shoot() {
   state.weapons = shot.state;
   state.shootCooldown = weapon.fireInterval;
   ensureAudio();
-  if (PURE_TACZ_STATIC) {
-    // Phase 2 纯枪模模式：不写视觉 recoil/muzzle flash timer，避免主循环和 adapter 叠加动态偏移。
+  if (FREEZE_FOR_CALIBRATION) {
+    // Phase 2 纯枪模 / Phase3 hip 冻结：不写视觉 recoil/muzzle flash timer，避免主循环和 adapter 叠加动态偏移。
     state.weaponAnimTimer = 0;
     state.weaponRecoil = 0;
     state.muzzleFlashTimer = 0;
@@ -1568,7 +1658,7 @@ function shoot() {
   state.crosshairHitTimer = 0;
   clearCrosshair(ui);
   playSound(weapon.fireSound);
-  if (!PURE_TACZ_STATIC) {
+  if (!FREEZE_FOR_CALIBRATION) {
     const animationController = getWeaponController(weapon.id)?.animationController;
     playWeaponAnimationAction(animationController, "shoot", {
       force: true,
@@ -1614,11 +1704,11 @@ function reloadCurrentWeapon() {
   state.weapons.reloadIsEmpty = reload.isEmpty;
 
   // 根据 soundScheme 选择换弹音播放方式：
-  // single = Glock17/M4 有完整 reload 单文件
-  // segmented = AK47/AWP/P90 只有分段音，用 magout+magin 两段按时序播放
+  // single = M4 有完整 reload 单文件
+  // segmented = AK47/AWP 只有分段音，用 magout+magin 两段按时序播放
   const reloadConfig = reload.isEmpty ? weapon.reloadEmpty : weapon.reloadTactical;
   const action = reload.isEmpty ? "reload_empty" : "reload_tactical";
-  if (!PURE_TACZ_STATIC) {
+  if (!FREEZE_FOR_CALIBRATION) {
     playWeaponAnimationAction(getWeaponController(weapon.id)?.animationController, action, { force: true });
   }
   if (reloadConfig.soundScheme === "single") {
@@ -1639,7 +1729,7 @@ function selectWeaponSlot(index) {
     ensureAudio();
     cancelSegmentedReload(); // 切枪时取消上一把枪待播放的 magin 音
     playSound(WEAPON_CONFIG[weaponId].drawSound ?? "weaponDraw");
-    if (!PURE_TACZ_STATIC) {
+    if (!FREEZE_FOR_CALIBRATION) {
       playWeaponAnimationAction(getWeaponController(weaponId)?.animationController, "draw", { force: true });
     }
     updateHud(ui, state);
@@ -1982,9 +2072,12 @@ function updateWeapon(delta) {
     shoot();
   }
 
-  // AWP 开镜：FOV 平滑过渡 + 瞄准镜蒙版 + 准星显隐 + 鼠标灵敏度
-  // Phase 2 纯枪模模式固定 hip pose + 默认 FOV，不进入 ADS 插值。
-  const canAds = !PURE_TACZ_STATIC && state.mode === "weaponLab" && weapon.id === "awp" && weapon.ads;
+  // ADS：FOV 平滑过渡 + scope 蒙版（仅带 weapon.ads 的狙击镜）+ 准星显隐 + 鼠标灵敏度
+  // Phase 2 纯枪模 / Phase3 hip 冻结模式固定 hip pose + 默认 FOV，不进入 ADS 插值。
+  // Phase3v12：canAds 允许 playing 模式，正常玩法可开镜（之前只限 weaponLab 导致 E2E playing 测试失败）
+  const canAds = !FREEZE_FOR_CALIBRATION
+    && (state.mode === "weaponLab" || state.mode === "playing")
+    && controllerSupportsAds(getWeaponController(weapon.id));
   // adsProgress 驱动 rig.blendPose("hip","ads",weight)，与 FOV/灵敏度同速插值，
   // 避免武器 pose 瞬切而相机平滑造成的视觉撕裂
   const adsTarget = canAds && state.ads ? 1 : 0;
@@ -1997,14 +2090,15 @@ function updateWeapon(delta) {
     state.adsProgress = 0;
   }
   // FOV 由 adsProgress 混合，保证相机视角与武器 pose 同步过渡
-  const adsFov = canAds && weapon.ads ? weapon.ads.fov : DEFAULT_FOV;
+  const usesScopeOverlay = weaponUsesScopeOverlay(weapon);
+  const adsFov = canAds ? (usesScopeOverlay ? weapon.ads.fov : DEFAULT_FOV * 0.92) : DEFAULT_FOV;
   const targetFov = BABYLON.Scalar.Lerp(DEFAULT_FOV, adsFov, state.adsProgress);
   camera.fov = BABYLON.Scalar.Lerp(camera.fov, targetFov, Math.min(1, delta * 10));
   if (canAds) {
-    // 蒙版/准星仍用布尔 state.ads 控制显隐，不做透明度动画，避免扩大 UI 范围
-    const scopeVisible = state.ads;
+    // 普通 iron_view 不显示 AWP 瞄准镜蒙版；本轮只让 AWP 使用 scope overlay。
+    const scopeVisible = state.ads && usesScopeOverlay;
     if (ui.scopeOverlay) ui.scopeOverlay.isVisible = scopeVisible;
-    if (ui.crosshairImage) ui.crosshairImage.isVisible = !scopeVisible;
+    if (ui.crosshairImage) ui.crosshairImage.isVisible = !state.ads;
     // 开镜时降低鼠标灵敏度（angularSensibility 越大越慢）
     const targetSensibility = scopeVisible
       ? DEFAULT_ANGULAR_SENSIBILITY / (weapon.ads.sensitivityScale ?? 1)
@@ -2016,8 +2110,8 @@ function updateWeapon(delta) {
     if (ui.crosshairImage && !ui.crosshairImage.isVisible) ui.crosshairImage.isVisible = true;
   }
 
-  // Phase 2 纯枪模模式：强制 ADS/FOV 归零，避免上一帧残留的 adsProgress/fov 影响静态画面。
-  if (PURE_TACZ_STATIC) {
+  // Phase 2 纯枪模 / Phase3 hip 冻结模式：强制 ADS/FOV 归零，避免上一帧残留的 adsProgress/fov 影响静态画面。
+  if (FREEZE_FOR_CALIBRATION) {
     state.ads = false;
     state.adsProgress = 0;
     camera.fov = DEFAULT_FOV;
@@ -2026,7 +2120,7 @@ function updateWeapon(delta) {
     if (ui.crosshairImage && !ui.crosshairImage.isVisible) ui.crosshairImage.isVisible = true;
   }
 
-  if (PURE_TACZ_STATIC) {
+  if (FREEZE_FOR_CALIBRATION) {
     // 视觉 timer 每帧强制清零，确保 adapter 不会拿到非零 recoil/reloadProgress 叠加偏移
     state.weaponRecoil = 0;
     state.weaponAnimTimer = 0;
@@ -2043,17 +2137,19 @@ function updateWeapon(delta) {
     // Phase 8: adapter 路径用 updateTaczFirstPersonWeapon 替代 updateWeaponModel
     updateTaczFirstPersonWeapon(controller, {
       active: isActive,
-      recoil: PURE_TACZ_STATIC ? 0 : state.weaponRecoil,
-      reloading: PURE_TACZ_STATIC ? false : state.weapons.reloading,
-      reloadProgress: PURE_TACZ_STATIC ? 0 : reloadProgress,
-      ads: PURE_TACZ_STATIC ? false : (state.ads && isActive),
+      recoil: FREEZE_FOR_CALIBRATION ? 0 : state.weaponRecoil,
+      reloading: FREEZE_FOR_CALIBRATION ? false : state.weapons.reloading,
+      reloadProgress: FREEZE_FOR_CALIBRATION ? 0 : reloadProgress,
+      ads: FREEZE_FOR_CALIBRATION ? false : (state.ads && isActive),
       // adsProgress 仅对激活武器生效；非激活武器传 0 让 rig 回到 hip pose
-      adsProgress: PURE_TACZ_STATIC ? 0 : (isActive ? state.adsProgress : 0),
+      adsProgress: FREEZE_FOR_CALIBRATION ? 0 : (isActive ? state.adsProgress : 0),
+      // pureStatic 只看 PURE_TACZ_STATIC：Phase3 hip 冻结仍走 adapter 的 applyHipPose 链路，
+      // 不应用 PHASE2_STATIC_POSE_CALIBRATION（那是 Phase2 裸枪静态入口专用）。
       pureStatic: PURE_TACZ_STATIC,
     });
     // 方块手动画：只在激活武器上更新，避免非激活武器的手部干扰
-    // Phase 2 纯枪模模式：跳过 hand/animation/reload 整块，避免动画残留驱动 bone pose
-    if (!PURE_TACZ_STATIC && isActive && controller.hands) {
+    // Phase 2 纯枪模 / Phase3 hip 冻结模式：跳过 hand/animation/reload 整块，避免动画残留驱动 bone pose
+    if (!FREEZE_FOR_CALIBRATION && isActive && controller.hands) {
       resetHandAnimationFlags(controller.hands);
       // 方式 B（兜底）：方式 A 已在 loadWeaponModel 中同步，正常情况下此处条件为 false 直接跳过
       // 保留作为兜底，防止方式 A 因时序异常未执行
@@ -2083,11 +2179,19 @@ function updateWeapon(delta) {
         recoil: state.weaponRecoil,
         reloading: state.weapons.reloading,
         reloadProgress,
-        animationPoseApplied: Boolean(taczPose?.valid),
+        animationPoseApplied: Boolean(taczPose?.valid && !controller.useFunctionalHandAnchors),
       });
+      if (controller.useFunctionalHandAnchors) {
+        updateFunctionalHandAnchors(controller, state.adsProgress);
+      }
+    } else if (FREEZE_FOR_CALIBRATION && isActive && controller.hands) {
+      // Phase3 hip 校准模式：隐藏 hands，避免 rotationOverride 旋转 weaponRoot 后
+      // hands 跟随旋转被甩到画面边缘，污染枪体校准视觉验收
+      controller.hands.leftHand.root.setEnabled(false);
+      controller.hands.rightHand.root.setEnabled(false);
     }
   }
-  if (PURE_TACZ_STATIC) {
+  if (FREEZE_FOR_CALIBRATION) {
     if (muzzleFlashPlane?.isEnabled()) muzzleFlashPlane.setEnabled(false);
   } else {
     updateMuzzleFlash(getWeaponController(weapon.id), weapon.id);

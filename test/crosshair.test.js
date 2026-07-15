@@ -15,7 +15,7 @@ test("每把武器都配置了 crosshair.image", () => {
 test("5 把武器配不同准星贴图", () => {
   const images = WEAPON_ORDER.map((id) => WEAPON_CONFIG[id].crosshair.image);
   const unique = new Set(images);
-  // AWP 和 glock17 可能都用 dot.png，但 AWP 有 hiddenByAds 标记
+  // AWP 使用 dot.png 并标记 hiddenByAds，其他武器用不同准星
   // 至少 3 种不同准星贴图（dot/round/better/circle 中至少 3 种）
   assert.ok(unique.size >= 3, `至少 3 种不同准星贴图，实际 ${unique.size} 种`);
 });
@@ -29,7 +29,7 @@ test("AWP 配置了 ads 开镜参数", () => {
 });
 
 test("只有狙击枪有 ads 配置", () => {
-  const ADS_WEAPONS = new Set(["awp", "m107", "m95"]);
+  const ADS_WEAPONS = new Set(["awp", "m95"]);
   for (const weaponId of WEAPON_ORDER) {
     const weapon = WEAPON_CONFIG[weaponId];
     if (ADS_WEAPONS.has(weaponId)) {

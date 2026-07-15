@@ -7,6 +7,7 @@ import {
   parseDisplayJson,
   createTaczFirstPersonWeapon,
   diagnoseFirstPersonWeapon,
+  updateFunctionalHandAnchors,
   updateTaczFirstPersonWeapon,
 } from "../src/taczFirstPersonAdapter.js";
 import { resolveTaczNamespace } from "../src/taczWeaponLoader.js";
@@ -18,7 +19,7 @@ import {
   WEAPON_MARKER_CALIBRATION,
   PHASE2_STATIC_POSE_CALIBRATION,
 } from "../src/config.js";
-import { _setSteveTextureForTest } from "../src/handModel.js";
+import { createHands, _setSteveTextureForTest } from "../src/handModel.js";
 
 const ROOT = path.resolve("public");
 
@@ -54,6 +55,14 @@ function assertVec3Close(actual, expected, message) {
   assert.ok(Math.abs(actual.x - expected[0]) < 0.0001, `${message} x`);
   assert.ok(Math.abs(actual.y - expected[1]) < 0.0001, `${message} y`);
   assert.ok(Math.abs(actual.z - expected[2]) < 0.0001, `${message} z`);
+}
+
+function assertQuaternionClose(actual, expected, message) {
+  assert.ok(actual, `${message} actual quaternion exists`);
+  assert.ok(Math.abs(actual.x - expected.x) < 0.0001, `${message} x`);
+  assert.ok(Math.abs(actual.y - expected.y) < 0.0001, `${message} y`);
+  assert.ok(Math.abs(actual.z - expected.z) < 0.0001, `${message} z`);
+  assert.ok(Math.abs(actual.w - expected.w) < 0.0001, `${message} w`);
 }
 
 // === resolveTaczNamespace 导出测试 ===
@@ -115,24 +124,24 @@ test("parseDisplayJson 对缺失 texture 字段生成 error 诊断", () => {
 
 test("parseDisplayJson 对缺失 use_default_animation 生成 warn 诊断（不静默回退）", () => {
   const display = {
-    model: "tacz:gun/glock_17_geo",
-    texture: "tacz:gun/uv/glock_17",
+    model: "tacz:gun/deagle_golden_geo",
+    texture: "tacz:gun/uv/deagle_golden",
   };
-  const result = parseDisplayJson(display, "glock17");
+  const result = parseDisplayJson(display, "deagle_golden");
   const warn = result.diagnostics.find((d) => d.field === "use_default_animation" && d.severity === "warn");
   assert.ok(warn, "缺失 use_default_animation 时生成 warn 诊断");
-  // 不静默回退：type 从 V2_WEAPON_ANIMATION_BINDINGS profile 推导（glock17 = pistol）
+  // 不静默回退：type 从 V2_WEAPON_ANIMATION_BINDINGS profile 推导（deagle_golden = pistol）
   assert.ok(result.animation.type, "缺失 use_default_animation 时仍有 type");
   assert.equal(result.animation.useDefaultAnimation, null, "useDefaultAnimation 为 null");
 });
 
 test("parseDisplayJson 对无效命名空间生成 error 诊断", () => {
   const display = {
-    model: "invalid:namespace/glock_17_geo",
-    texture: "tacz:gun/uv/glock_17",
+    model: "invalid:namespace/deagle_golden_geo",
+    texture: "tacz:gun/uv/deagle_golden",
     use_default_animation: "pistol",
   };
-  const result = parseDisplayJson(display, "glock17");
+  const result = parseDisplayJson(display, "deagle_golden");
   const modelError = result.diagnostics.find((d) => d.field === "model" && d.severity === "error");
   assert.ok(modelError, "无效 model 命名空间时生成 error 诊断");
   assert.equal(result.model.geoPath, null, "无效命名空间返回 null geoPath");
@@ -189,8 +198,16 @@ for (const weaponId of WEAPON_ORDER) {
         fpWeapon.rig.rightHandRoot,
         `${weaponId} rightHand.root.parent === rig.rightHandRoot`
       );
-      assert.deepEqual(fpWeapon.hands.leftHand.defaultPos, [0, 0, 0], `${weaponId} leftHand.defaultPos 在 rig hand root 下归零`);
-      assert.deepEqual(fpWeapon.hands.rightHand.defaultPos, [0, 0, 0], `${weaponId} rightHand.defaultPos 在 rig hand root 下归零`);
+      assert.deepEqual(
+        fpWeapon.hands.leftHand.defaultPos,
+        fpWeapon.functionalHandVisuals.leftHand.rootOffset,
+        `${weaponId} leftHand.defaultPos 来自 lefthand_pos marker cube`
+      );
+      assert.deepEqual(
+        fpWeapon.hands.rightHand.defaultPos,
+        fpWeapon.functionalHandVisuals.rightHand.rootOffset,
+        `${weaponId} rightHand.defaultPos 来自 righthand_pos marker cube`
+      );
 
       // animationController 存在且已同步 taczBoneMap
       assert.ok(fpWeapon.animationController, `${weaponId} animationController 存在`);
@@ -236,10 +253,10 @@ for (const weaponId of WEAPON_ORDER) {
         textureUrl: ASSET_PATHS.taczWeaponTextures[weaponId],
       });
 
-      // 多数武器 geo 应包含 muzzle_pos/muzzle_flash/muzzle_default/rocket_head 之一
+      // 多数武器 geo 应包含 muzzle_pos/muzzle_flash/muzzle_default 之一
       assert.ok(fpWeapon.nativeMuzzleSource, `${weaponId} nativeMuzzleSource 不为 null`);
       assert.ok(
-        ["muzzle_pos", "muzzle_flash", "muzzle_default", "rocket_head"].includes(fpWeapon.nativeMuzzleSource.boneName),
+        ["muzzle_pos", "muzzle_flash", "muzzle_default"].includes(fpWeapon.nativeMuzzleSource.boneName),
         `${weaponId} nativeMuzzleSource.boneName 应为 TaCZ 枪口 bone`
       );
       assert.equal(Array.isArray(fpWeapon.nativeMuzzleSource.position), true, `${weaponId} nativeMuzzleSource.position 为数组`);
@@ -290,14 +307,14 @@ test("createTaczFirstPersonWeapon 模型在 modelRoot 下无额外偏移", () =>
 });
 
 test("createTaczFirstPersonWeapon rig 默认隐藏（setEnabled(false))", () => {
-  const display = loadJson(ASSET_PATHS.taczDisplayJson.rpg7);
-  const geo = loadJson(ASSET_PATHS.taczGeoModels.rpg7);
+  const display = loadJson(ASSET_PATHS.taczDisplayJson.m4);
+  const geo = loadJson(ASSET_PATHS.taczGeoModels.m4);
   const { engine, scene, camera } = makeScene();
 
   try {
-    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "rpg7", display, geo, {
-      weaponConfig: WEAPON_CONFIG.rpg7,
-      textureUrl: ASSET_PATHS.taczWeaponTextures.rpg7,
+    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "m4", display, geo, {
+      weaponConfig: WEAPON_CONFIG.m4,
+      textureUrl: ASSET_PATHS.taczWeaponTextures.m4,
     });
     assert.equal(fpWeapon.rig.cameraAnchor.isEnabled(), false, "rig 默认隐藏");
     // setEnabled(true) 后可见
@@ -309,14 +326,14 @@ test("createTaczFirstPersonWeapon rig 默认隐藏（setEnabled(false))", () => 
 });
 
 test("updateTaczFirstPersonWeapon 使用 adsProgress 在 hip 和 ads 之间插值", () => {
-  const display = loadJson(ASSET_PATHS.taczDisplayJson.glock17);
-  const geo = loadJson(ASSET_PATHS.taczGeoModels.glock17);
+  const display = loadJson(ASSET_PATHS.taczDisplayJson.deagle_golden);
+  const geo = loadJson(ASSET_PATHS.taczGeoModels.deagle_golden);
   const { engine, scene, camera } = makeScene();
 
   try {
-    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "glock17", display, geo, {
-      weaponConfig: WEAPON_CONFIG.glock17,
-      textureUrl: ASSET_PATHS.taczWeaponTextures.glock17,
+    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "deagle_golden", display, geo, {
+      weaponConfig: WEAPON_CONFIG.deagle_golden,
+      textureUrl: ASSET_PATHS.taczWeaponTextures.deagle_golden,
     });
     const hip = fpWeapon.rig.calibration.hipPose.position;
     const ads = fpWeapon.rig.adsPose.position;
@@ -331,6 +348,96 @@ test("updateTaczFirstPersonWeapon 使用 adsProgress 在 hip 和 ads 之间插�
     assert.ok(Math.abs(fpWeapon.rig.weaponRoot.position.x - (hip[0] + ads[0]) / 2) < 0.0001, "adsProgress=0.5 使用中间 x");
     assert.ok(Math.abs(fpWeapon.rig.weaponRoot.position.y - (hip[1] + ads[1]) / 2) < 0.0001, "adsProgress=0.5 使用中间 y");
     assert.ok(Math.abs(fpWeapon.rig.weaponRoot.position.z - (hip[2] + ads[2]) / 2) < 0.0001, "adsProgress=0.5 使用中间 z");
+  } finally {
+    engine.dispose();
+  }
+});
+
+test("updateFunctionalHandAnchors 使用 _pos world matrix + Rz180 驱动 handRoot", () => {
+  const { engine, scene } = makeScene();
+
+  try {
+    const weaponRoot = new BABYLON.TransformNode("test-weapon-root", scene);
+    weaponRoot.position.set(0.3, -0.2, 0.5);
+    weaponRoot.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y, 0.4);
+
+    const rightHandRoot = new BABYLON.TransformNode("test-right-hand-root", scene);
+    rightHandRoot.parent = weaponRoot;
+    const leftHandRoot = new BABYLON.TransformNode("test-left-hand-root", scene);
+    leftHandRoot.parent = weaponRoot;
+
+    const hands = createHands(scene, weaponRoot, "test", {});
+    hands.rightHand.root.parent = rightHandRoot;
+    hands.leftHand.root.parent = leftHandRoot;
+
+    const boneParent = new BABYLON.TransformNode("test-bone-parent", scene);
+    boneParent.position.set(1, 2, 3);
+    boneParent.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.X, 0.25);
+    const rightPos = new BABYLON.TransformNode("test-righthand-pos", scene);
+    rightPos.parent = boneParent;
+    rightPos.position.set(0.1, 0.2, 0.3);
+    rightPos.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Z, 0.5);
+    const leftPos = new BABYLON.TransformNode("test-lefthand-pos", scene);
+    leftPos.parent = boneParent;
+    leftPos.position.set(-0.2, 0.1, 0.4);
+    leftPos.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y, -0.2);
+
+    const controller = {
+      rig: { weaponRoot, rightHandRoot, leftHandRoot },
+      hands,
+      taczBoneMap: new Map([
+        ["righthand_pos", rightPos],
+        ["lefthand_pos", leftPos],
+      ]),
+    };
+
+    assert.equal(updateFunctionalHandAnchors(controller), true, "functional hand anchors applied");
+
+    weaponRoot.computeWorldMatrix(true);
+    const weaponRootInv = weaponRoot.getWorldMatrix().clone();
+    weaponRootInv.invert();
+    rightPos.computeWorldMatrix(true);
+    const expectedRight = BABYLON.Matrix.RotationZ(Math.PI).multiply(rightPos.getWorldMatrix()).multiply(weaponRootInv);
+    const expectedScale = new BABYLON.Vector3();
+    const expectedRot = new BABYLON.Quaternion();
+    const expectedPos = new BABYLON.Vector3();
+    expectedRight.decompose(expectedScale, expectedRot, expectedPos);
+
+    assertVec3Close(rightHandRoot.position, [expectedPos.x, expectedPos.y, expectedPos.z], "rightHandRoot.position 来自完整矩阵");
+    assertQuaternionClose(rightHandRoot.rotationQuaternion, expectedRot, "rightHandRoot.rotation 来自完整矩阵");
+    assert.deepEqual(hands.rightHand.defaultPos, [0, 0, 0], "手 mesh 在 handRoot 下归零");
+    assert.equal(updateFunctionalHandAnchors(controller, 1), true, "ADS 进度下 functional hand anchors applied");
+    assert.ok(Math.abs(hands.rightHand.root.scaling.x - 0.35) < 0.0001, "ADS 时手部视觉缩小，避免遮挡机瞄");
+  } finally {
+    engine.dispose();
+  }
+});
+
+test("createTaczFirstPersonWeapon 使用 _pos marker cube 偏移分离左右 Steve 手臂", () => {
+  const display = loadJson(ASSET_PATHS.taczDisplayJson.ak47);
+  const geo = loadJson(ASSET_PATHS.taczGeoModels.ak47);
+  const { engine, scene, camera } = makeScene();
+
+  try {
+    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "ak47", display, geo, {
+      weaponConfig: WEAPON_CONFIG.ak47,
+      textureUrl: ASSET_PATHS.taczWeaponTextures.ak47,
+    });
+
+    assert.deepEqual(
+      fpWeapon.functionalHandVisuals.rightHand.rootOffset,
+      [0.34375, 0, 0],
+      "右手 rootOffset 来自 righthand_pos cube center"
+    );
+    assert.deepEqual(
+      fpWeapon.functionalHandVisuals.leftHand.rootOffset,
+      [-0.34375, 0, 0],
+      "左手 rootOffset 来自 lefthand_pos cube center"
+    );
+    assert.deepEqual(fpWeapon.functionalHandVisuals.rightHand.scale, [0.54, 0.72, 0.72], "3px 宽手臂叠加默认 functional handScale");
+    assert.deepEqual(fpWeapon.hands.rightHand.defaultPos, [0.34375, 0, 0], "右手 mesh 默认局部偏移写入 defaultPos");
+    assert.equal(fpWeapon.hands.rightHand.palm.isEnabled(), false, "功能节点模式隐藏额外 palm，避免手臂压住 HUD");
+    assert.equal(fpWeapon.hands.rightHand.wrist.isEnabled(), false, "功能节点模式隐藏额外 wrist，避免手臂压住 HUD");
   } finally {
     engine.dispose();
   }
@@ -361,7 +468,7 @@ test("diagnoseFirstPersonWeapon 对未知 weaponId 报错", () => {
 
 test("diagnoseFirstPersonWeapon 检测 display.json 解析错误", () => {
   const brokenDisplay = { texture: "tacz:gun/uv/glock_17" }; // 缺 model
-  const diag = diagnoseFirstPersonWeapon("glock17", { displayJson: brokenDisplay });
+  const diag = diagnoseFirstPersonWeapon("deagle_golden", { displayJson: brokenDisplay });
   assert.equal(diag.valid, false, "display.json 缺 model 时 valid=false");
   const modelError = diag.errors.find((e) => e.includes("model"));
   assert.ok(modelError, "error 包含 model 字段缺失信息");
@@ -369,20 +476,19 @@ test("diagnoseFirstPersonWeapon 检测 display.json 解析错误", () => {
 
 // === Phase 5: WEAPON_CALIBRATION 集成测试 ===
 
-test("createTaczFirstPersonWeapon 默认使用 TaCZ marker 覆盖 pose，WEAPON_CALIBRATION 保留 fallback 字段", () => {
-  const display = loadJson(ASSET_PATHS.taczDisplayJson.glock17);
-  const geo = loadJson(ASSET_PATHS.taczGeoModels.glock17);
+test("createTaczFirstPersonWeapon 使用 marker 覆盖 pose，但 rightGrip/leftGrip 保留 WEAPON_CALIBRATION 值", () => {
+  const display = loadJson(ASSET_PATHS.taczDisplayJson.deagle_golden);
+  const geo = loadJson(ASSET_PATHS.taczGeoModels.deagle_golden);
   const { engine, scene, camera } = makeScene();
 
   try {
-    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "glock17", display, geo, {
-      weaponConfig: WEAPON_CONFIG.glock17,
-      textureUrl: ASSET_PATHS.taczWeaponTextures.glock17,
+    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "deagle_golden", display, geo, {
+      weaponConfig: WEAPON_CONFIG.deagle_golden,
+      textureUrl: ASSET_PATHS.taczWeaponTextures.deagle_golden,
     });
-    // 有 TaCZ marker 时，pose/grip 优先来自 geo 定位组；WEAPON_CALIBRATION 只保留 fallback 字段
-    // hipPose.position = idleView.position * markerScale + hipOffset（经 mergeCalibrationWithMarkers 处理）
-    const expected = WEAPON_CALIBRATION.glock17;
-    const markerCal = WEAPON_MARKER_CALIBRATION.glock17;
+    // hipPose.position 来自 idleView marker 经 markerScale + hipOffset 处理
+    const expected = WEAPON_CALIBRATION.deagle_golden;
+    const markerCal = WEAPON_MARKER_CALIBRATION.deagle_golden;
     const idlePos = fpWeapon.firstPersonMarkers.idleView.position;
     const expectedHipPos = [
       idlePos[0] * markerCal.markerScale + (markerCal.hipOffset[0] || 0),
@@ -394,15 +500,21 @@ test("createTaczFirstPersonWeapon 默认使用 TaCZ marker 覆盖 pose，WEAPON_
       expectedHipPos,
       "hipPose.position 来自 idle_view marker 经 markerScale + hipOffset 处理"
     );
+    // rightGrip/leftGrip 保留 WEAPON_CALIBRATION base 值 + gripOffset（marker grip position 不覆盖）
+    const expectedRightGrip = [
+      expected.rightGrip[0] + (markerCal.rightGripOffset?.[0] || 0),
+      expected.rightGrip[1] + (markerCal.rightGripOffset?.[1] || 0),
+      expected.rightGrip[2] + (markerCal.rightGripOffset?.[2] || 0),
+    ];
     assert.deepEqual(
       fpWeapon.rig.calibration.rightGrip,
-      fpWeapon.firstPersonMarkers.rightHand.position,
-      "rightGrip 来自 righthand_pos marker"
+      expectedRightGrip,
+      "rightGrip = WEAPON_CALIBRATION base 值 + rightGripOffset"
     );
     assert.deepEqual(
       fpWeapon.rig.calibration.muzzle,
       expected.muzzle,
-      "muzzle 等于 WEAPON_CALIBRATION.glock17.muzzle"
+      "muzzle 等于 WEAPON_CALIBRATION.deagle_golden.muzzle"
     );
   } finally {
     engine.dispose();
@@ -467,7 +579,7 @@ test("createTaczFirstPersonWeapon options.calibration 优先于 WEAPON_CALIBRATI
       textureUrl: ASSET_PATHS.taczWeaponTextures.m4,
       calibration: customCalibration,
     });
-    // TaCZ marker 覆盖 options.calibration 的 hipPose，但经 WEAPON_MARKER_CALIBRATION hipOffset 处理
+    // TaCZ marker 覆盖 options.calibration 的 hipPose，经 markerScale + hipOffset 处理
     const markerCalM4 = WEAPON_MARKER_CALIBRATION.m4;
     const idlePosM4 = fpWeapon.firstPersonMarkers.idleView.position;
     const expectedHipPosM4 = [
@@ -478,7 +590,7 @@ test("createTaczFirstPersonWeapon options.calibration 优先于 WEAPON_CALIBRATI
     assert.deepEqual(
       fpWeapon.rig.calibration.hipPose.position,
       expectedHipPosM4,
-      "TaCZ marker 覆盖 options.calibration 的 hipPose（经 hipOffset 处理）"
+      "TaCZ marker 覆盖 options.calibration 的 hipPose（经 markerScale + hipOffset 处理）"
     );
     assert.equal(fpWeapon.rig.modelRoot.scaling.x, 2, "modelScale 来自 options.calibration");
   } finally {
@@ -498,19 +610,19 @@ function cloneGeoWithoutBone(geo, boneName) {
 }
 
 test("createTaczFirstPersonWeapon 缺 iron_view 时使用 calibration adsPose fallback", () => {
-  const display = loadJson(ASSET_PATHS.taczDisplayJson.glock17);
-  const geo = cloneGeoWithoutBone(loadJson(ASSET_PATHS.taczGeoModels.glock17), "iron_view");
+  const display = loadJson(ASSET_PATHS.taczDisplayJson.deagle_golden);
+  const geo = cloneGeoWithoutBone(loadJson(ASSET_PATHS.taczGeoModels.deagle_golden), "iron_view");
   const { engine, scene, camera } = makeScene();
 
   try {
     const fallbackCalibration = {
-      ...WEAPON_CALIBRATION.glock17,
+      ...WEAPON_CALIBRATION.deagle_golden,
       adsPose: { position: [0.12, -0.34, 0.56], rotation: [0.01, 0.02, 0.03] },
     };
-    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "glock17", display, geo, {
+    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "deagle_golden", display, geo, {
       calibration: fallbackCalibration,
-      weaponConfig: WEAPON_CONFIG.glock17,
-      textureUrl: ASSET_PATHS.taczWeaponTextures.glock17,
+      weaponConfig: WEAPON_CONFIG.deagle_golden,
+      textureUrl: ASSET_PATHS.taczWeaponTextures.deagle_golden,
     });
 
     // iron_view 缺失：markerSource 标记 false，adsPose 不被 marker 覆盖，保留 fallback
@@ -617,19 +729,19 @@ for (const weaponId of WEAPON_ORDER) {
 }
 
 test("createTaczFirstPersonWeapon 缺 lefthand_pos 时使用 calibration leftGrip fallback", () => {
-  const display = loadJson(ASSET_PATHS.taczDisplayJson.glock17);
-  const geo = cloneGeoWithoutBone(loadJson(ASSET_PATHS.taczGeoModels.glock17), "lefthand_pos");
+  const display = loadJson(ASSET_PATHS.taczDisplayJson.deagle_golden);
+  const geo = cloneGeoWithoutBone(loadJson(ASSET_PATHS.taczGeoModels.deagle_golden), "lefthand_pos");
   const { engine, scene, camera } = makeScene();
 
   try {
     const fallbackCalibration = {
-      ...WEAPON_CALIBRATION.glock17,
+      ...WEAPON_CALIBRATION.deagle_golden,
       leftGrip: [-0.11, -0.22, 0.33],
     };
-    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "glock17", display, geo, {
+    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "deagle_golden", display, geo, {
       calibration: fallbackCalibration,
-      weaponConfig: WEAPON_CONFIG.glock17,
-      textureUrl: ASSET_PATHS.taczWeaponTextures.glock17,
+      weaponConfig: WEAPON_CONFIG.deagle_golden,
+      textureUrl: ASSET_PATHS.taczWeaponTextures.deagle_golden,
     });
 
     // lefthand_pos 缺失：markerSource.leftHand 标记 false，leftGrip 保留 fallback
@@ -641,5 +753,96 @@ test("createTaczFirstPersonWeapon 缺 lefthand_pos 时使用 calibration leftGri
     assert.ok(fpWeapon.firstPersonMarkers.rightHand, "righthand_pos 仍可读取");
   } finally {
     engine.dispose();
+  }
+});
+
+// === Phase3 hip 冻结模式（phase3Hip=1）测试 ===
+// phase3Hip=1 对应 adapter 路径：pureStatic=false（保留 hands + animationController 创建），
+// 但 main.js 主循环冻结 draw/idle/shoot/reload 动画输入、recoil/reloadDrop/ads 偏移。
+// 这里覆盖 Task 0 Step 3 的 Test intent：
+//   1. pureStatic=false 时不应用 PHASE2_STATIC_POSE_CALIBRATION（已有测试，这里补充 marker 校准生效）。
+//   2. pureStatic=false 时 hipOffset 反映到 weaponRootPosition。
+//   3. pureStatic=false 时 rotationOverride 反映到 weaponRootRotation。
+
+test("Phase3 hip 冻结模式：m4 的 hipOffset 反映到 weaponRootPosition，不应用 Phase2 静态 pose", () => {
+  const display = loadJson(ASSET_PATHS.taczDisplayJson.m4);
+  const geo = loadJson(ASSET_PATHS.taczGeoModels.m4);
+  const { engine, scene, camera } = makeScene();
+
+  try {
+    const fpWeapon = createTaczFirstPersonWeapon(scene, camera, "m4", display, geo, {
+      weaponConfig: WEAPON_CONFIG.m4,
+      textureUrl: ASSET_PATHS.taczWeaponTextures.m4,
+      pureStatic: false,
+    });
+
+    // phase3Hip=1 对应的 adapter 调用：pureStatic=false, adsProgress=0, recoil=0, reloading=false
+    updateTaczFirstPersonWeapon(fpWeapon, {
+      active: true,
+      adsProgress: 0,
+      recoil: 0,
+      reloading: false,
+      reloadProgress: 0,
+      pureStatic: false,
+    });
+
+    // 不应用 Phase2 静态 pose
+    assert.equal(fpWeapon.staticPoseApplied, false, "phase3Hip 不应用 Phase2 静态 pose");
+    assert.equal(fpWeapon.staticPoseSource, null, "phase3Hip staticPoseSource 为 null");
+    assert.equal(fpWeapon.rig.currentPose, "hip", "phase3Hip rig.currentPose === hip");
+
+    // hipOffset 反映到 weaponRootPosition（markerScale + offset 直接叠加）
+    const markerCal = WEAPON_MARKER_CALIBRATION.m4;
+    const idlePos = fpWeapon.firstPersonMarkers.idleView.position;
+    const expectedHipPos = [
+      idlePos[0] * markerCal.markerScale + markerCal.hipOffset[0],
+      idlePos[1] * markerCal.markerScale + markerCal.hipOffset[1],
+      idlePos[2] * markerCal.markerScale + markerCal.hipOffset[2],
+    ];
+    assertVec3Close(fpWeapon.rig.weaponRoot.position, expectedHipPos, "m4 weaponRootPosition 应反映 hipOffset");
+    // 明确不等于 Phase2 静态 position
+    const phase2Pos = PHASE2_STATIC_POSE_CALIBRATION.m4.position;
+    assert.ok(
+      Math.abs(fpWeapon.rig.weaponRoot.position.x - phase2Pos[0]) > 0.001
+        || Math.abs(fpWeapon.rig.weaponRoot.position.y - phase2Pos[1]) > 0.001
+        || Math.abs(fpWeapon.rig.weaponRoot.position.z - phase2Pos[2]) > 0.001,
+      "m4 weaponRootPosition 不应等于 PHASE2_STATIC_POSE_CALIBRATION.m4.position"
+    );
+  } finally {
+    engine.dispose();
+  }
+});
+
+test("Phase3 hip 冻结模式：5 把武器 pureStatic=false 时 rig.currentPose 都是 hip 且不应用 Phase2 pose", () => {
+  for (const weaponId of WEAPON_ORDER) {
+    const display = loadJson(ASSET_PATHS.taczDisplayJson[weaponId]);
+    const geo = loadJson(ASSET_PATHS.taczGeoModels[weaponId]);
+    const { engine, scene, camera } = makeScene();
+
+    try {
+      const fpWeapon = createTaczFirstPersonWeapon(scene, camera, weaponId, display, geo, {
+        weaponConfig: WEAPON_CONFIG[weaponId],
+        textureUrl: ASSET_PATHS.taczWeaponTextures[weaponId],
+        pureStatic: false,
+      });
+
+      updateTaczFirstPersonWeapon(fpWeapon, {
+        active: true,
+        adsProgress: 0,
+        recoil: 0,
+        reloading: false,
+        reloadProgress: 0,
+        pureStatic: false,
+      });
+
+      assert.equal(fpWeapon.staticPoseApplied, false, `${weaponId} 不应用 Phase2 静态 pose`);
+      assert.equal(fpWeapon.staticPoseSource, null, `${weaponId} staticPoseSource 为 null`);
+      assert.equal(fpWeapon.rig.currentPose, "hip", `${weaponId} rig.currentPose === hip`);
+      // hands 和 animationController 仍存在（Phase3 真实链路保留）
+      assert.ok(fpWeapon.hands, `${weaponId} hands 仍创建`);
+      assert.ok(fpWeapon.animationController, `${weaponId} animationController 仍创建`);
+    } finally {
+      engine.dispose();
+    }
   }
 });

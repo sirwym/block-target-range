@@ -9,26 +9,18 @@
 
 // 每把枪在 V2 glTF 中的弹匣/套筒节点名（从 nodes 字段确认）
 const MAGAZINE_NODE_NAMES = {
-  glock17: "magazine",
   m4: "mb",
   ak47: "megazing_default",
   awp: "magazine2",
-  p90: "p90_mag_standard",
 };
 
 const SLIDE_NODE_NAMES = {
-  glock17: "slide",
   m4: null,
   ak47: "bolt",
   awp: "bolt_fix2",
-  p90: "pull",
 };
 
 const PART_NODE_CHANNELS = {
-  glock17: {
-    magazine: { translation: "magazine" },
-    slide: { translation: "slide" },
-  },
   m4: {
     magazine: { translation: "mb" },
   },
@@ -40,19 +32,13 @@ const PART_NODE_CHANNELS = {
     magazine: { translation: "magazine2" },
     slide: { translation: "bolt_fix2", rotation: "bolt_rotate2" },
   },
-  p90: {
-    magazine: { translation: "p90_mag_standard" },
-    slide: { translation: "pull" },
-  },
 };
 
 // V2 glTF 文件名前缀映射（weaponId → V2 文件名前缀）
 const V2_FILE_PREFIX = {
-  glock17: "glock_17",
   m4: "m4",
   ak47: "ak47",
   awp: "ai_awp",
-  p90: "p90",
 };
 
 const ANIMATION_PATH = "assets/tacz/animations";

@@ -5,7 +5,7 @@ import { createStats } from "../src/weaponLab.js";
 import { buildInventoryViewData } from "../src/inventoryView.js";
 
 // 构造最小可用 state，供 buildInventoryViewData 读取
-function makeState(weaponId = "glock17") {
+function makeState(weaponId = "m4") {
   return {
     weapons: {
       currentWeaponId: weaponId,
@@ -115,8 +115,8 @@ test("buildInventoryViewData 当前武器 selected 标记正确", () => {
 });
 
 test("buildInventoryViewData fireMode 字段：automatic → 自动，半自动 → 半自动", () => {
-  // glock17 是半自动
-  const semiState = makeState("glock17");
+  // deagle_golden 是半自动
+  const semiState = makeState("deagle_golden");
   const semiView = buildInventoryViewData(semiState, null, null);
   assert.equal(semiView.currentWeapon.fireMode, "半自动");
 
@@ -127,14 +127,14 @@ test("buildInventoryViewData fireMode 字段：automatic → 自动，半自动 
 });
 
 test("buildInventoryViewData fireRate 从 fireInterval 正确换算", () => {
-  // glock17 fireInterval = 60/400 = 0.15s，fireRate = 60/0.15/60 = 6.67 → 取 1 位小数 = 6.7
-  const state = makeState("glock17");
+  // deagle_golden 半自动手枪，fireRate = 60/fireInterval/60
+  const state = makeState("deagle_golden");
   const view = buildInventoryViewData(state, null, null);
-  const expected = Math.round((60 / WEAPON_CONFIG.glock17.fireInterval / 60) * 10) / 10;
+  const expected = Math.round((60 / WEAPON_CONFIG.deagle_golden.fireInterval / 60) * 10) / 10;
   assert.equal(view.currentWeapon.fireRate, expected);
-  assert.equal(view.currentWeapon.magazineSize, WEAPON_CONFIG.glock17.magazineSize);
-  assert.equal(view.currentWeapon.bodyDamage, WEAPON_CONFIG.glock17.bodyDamage);
-  assert.equal(view.currentWeapon.recoil, WEAPON_CONFIG.glock17.recoil);
+  assert.equal(view.currentWeapon.magazineSize, WEAPON_CONFIG.deagle_golden.magazineSize);
+  assert.equal(view.currentWeapon.bodyDamage, WEAPON_CONFIG.deagle_golden.bodyDamage);
+  assert.equal(view.currentWeapon.recoil, WEAPON_CONFIG.deagle_golden.recoil);
 });
 
 test("buildInventoryViewData character.previewSrc 指向 steve.png", () => {
@@ -165,9 +165,9 @@ test("buildInventoryViewData displayCount 在 enemy 模式用 enemies.length", (
 });
 
 // 新增武器 selected 标记和字段完整性验证，确保新武器不会导致 GUI 崩溃
-// 第一人称排查阶段 rpg7 已从 WEAPON_ORDER 过滤，仅验证保留的新枪 m107/m95
-test("buildInventoryViewData 新武器 m107/m95 selected 标记正确且字段完整", () => {
-  for (const wid of ["m107", "m95"]) {
+// 第一人称排查阶段逐武器验证目标武器 m95 字段完整性
+test("buildInventoryViewData 新武器 m95 selected 标记正确且字段完整", () => {
+  for (const wid of ["m95"]) {
     const state = makeState(wid);
     const view = buildInventoryViewData(state, null, null);
     const selectedSlots = view.weaponSlots.filter((s) => s.selected);

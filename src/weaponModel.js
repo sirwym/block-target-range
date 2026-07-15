@@ -4,37 +4,22 @@ import { colorMaterial } from "./assets.js";
 import { isTaczNativeWeapon, loadTaczWeapon } from "./taczWeaponLoader.js";
 
 const FIRST_PERSON_WEAPON_COLORS = {
-  glock17: "#24272b",
   m4: "#2c3036",
   ak47: "#4a3a2c",
   awp: "#30343a",
-  p90: "#232527",
-  // V2 新增 4 把武器材质色
   deagle_golden: "#b8860b",  // 黄金色（黄金沙鹰）
-  rpg7: "#3a4a2a",           // 军绿（RPG 火箭筒）
-  m107: "#3d3a32",           // 沙色金属（反器材狙击）
   m95: "#2f2e35",            // 深灰（重型栓动）
   fallback: "#2b2f34",
 };
 
-// P90 杪质色值刻意走中性深枪灰/黑灰金属色（R≈G≈B 略偏冷）。
-// 旧值 #3a3d42 / #2a2d33 蓝分量偏大，叠加 createSkyTexture 的蓝色天光后整体显青，
-// 这里压低蓝分量确保最终呈现深枪灰而非青色。改动需同步 test/weaponModel.test.js 的非青阈值。
-export const P90_MATERIAL_COLORS = {
-  "#2": "#1c1e21",
-  "#3": "#2b2e31",
-  fallback: "#232527",
-};
-
 // TaCZ 原生武器枪口 bone 查找优先级
-// muzzle_pos 是 TaCZ geo 中标准的枪口位置 bone（deagle/m107/m95 都有）
+// muzzle_pos 是 TaCZ geo 中标准的枪口位置 bone（deagle/m95 都有）
 // muzzle_flash 是枪口火焰 bone，位置略前于 muzzle_pos，作为备选
-// muzzle_default 是默认枪口 bone（m107/m95 有）
-// rocket_head 是 RPG7 火箭弹头 bone，RPG7 无 muzzle_pos，用弹头前端作枪口
-const TACZ_MUZZLE_BONE_NAMES = ["muzzle_pos", "muzzle_flash", "muzzle_default", "rocket_head"];
+// muzzle_default 是默认枪口 bone（m95 有）
+const TACZ_MUZZLE_BONE_NAMES = ["muzzle_pos", "muzzle_flash", "muzzle_default"];
 
 // ===== 通用 3D 武器模型加载器 =====
-// 5 把武器统一走 createWeaponModel，P90 保留多色材质（按 texture key 选 P90_MATERIAL_COLORS）。
+// 5 把武器统一走 createWeaponModel，使用 FIRST_PERSON_WEAPON_COLORS 纯色材质。
 
 export function createWeaponModel(scene, camera, weaponId, modelConfig, textureMap, onStatus = () => {}) {
   const root = new BABYLON.TransformNode(`${weaponId}-first-person-root`, scene);
@@ -69,7 +54,6 @@ export function updateWeaponModel(controller, { active, recoil, reloading, reloa
       resetPartPivot(controller.magazinePivot);
       resetPartPivot(controller.slidePivot);
       resetPartPivot(controller.heldMagazinePivot);
-      resetPartPivot(controller.heldRocketPivot);
       setHeldPartVisible(controller, false);
     }
     return false;
@@ -173,7 +157,7 @@ function setMuzzleAnchorPosition(anchor, modelConfig, controller) {
 
 async function loadWeaponModel(scene, root, controller, weaponId, textureMap, onStatus) {
   try {
-    // TaCZ 原生 geo 路径：9 把枪走 display.json → Bedrock geo renderer
+    // TaCZ 原生 geo 路径：5 把枪走 display.json → Bedrock geo renderer
     if (isTaczNativeWeapon(weaponId)) {
       const weapon = await loadTaczWeapon(weaponId, scene);
       weapon.model.root.parent = root;
@@ -218,7 +202,6 @@ async function loadWeaponModel(scene, root, controller, weaponId, textureMap, on
     controller.boltPivot = result.boltPivot;
     controller.partRoots = result.partRoots;
     controller.heldMagazinePivot = result.heldMagazinePivot;
-    controller.heldRocketPivot = result.heldRocketPivot;
     controller.status = `${weaponId} model loaded (${result.partCount} parts)`;
     onStatus(controller.status);
   } catch (error) {
@@ -277,7 +260,7 @@ export function buildFirstPersonBlockbenchMesh(model, scene, parent, weaponId, r
     const built = buildSolidElementMesh(element, scene, group, weaponId, index);
     const mesh = built?.mesh;
     if (!mesh) return;
-    mesh.material = selectMaterialForElement(element, materials, weaponId);
+    mesh.material = selectMaterialForElement(element, materials);
     mesh.isPickable = false;
     mesh.renderingGroupId = 2;
     mesh.alwaysSelectAsActiveMesh = true;
@@ -299,8 +282,7 @@ export function buildFirstPersonBlockbenchMesh(model, scene, parent, weaponId, r
     }
   });
   const heldMagazinePivot = createHeldPartPivot(scene, group, weaponId, "magazine", partRoots.magazine);
-  const heldRocketPivot = weaponId === "rpg7" ? createHeldPartPivot(scene, group, weaponId, "rocket", []) : null;
-  return { partCount: model.elements.length, magazinePivot, slidePivot, boltPivot, partRoots, heldMagazinePivot, heldRocketPivot };
+  return { partCount: model.elements.length, magazinePivot, slidePivot, boltPivot, partRoots, heldMagazinePivot };
 }
 
 function createHeldPartPivot(scene, parent, weaponId, partName, sourceRoots) {
@@ -320,17 +302,9 @@ function createHeldPartPivot(scene, parent, weaponId, partName, sourceRoots) {
       }
     });
   } else {
-    const fallback = partName === "rocket"
-      ? BABYLON.MeshBuilder.CreateCylinder(`${weaponId}-held-rocket-body`, { height: 0.58, diameter: 0.09, tessellation: 12 }, scene)
-      : BABYLON.MeshBuilder.CreateBox(`${weaponId}-held-${partName}-body`, { width: 0.13, height: 0.28, depth: 0.08 }, scene);
+    const fallback = BABYLON.MeshBuilder.CreateBox(`${weaponId}-held-${partName}-body`, { width: 0.13, height: 0.28, depth: 0.08 }, scene);
     fallback.parent = pivot;
-    fallback.rotation.z = partName === "rocket" ? Math.PI / 2 : 0;
-    const fallbackColor = partName === "rocket"
-      ? "#4b5d35"
-      : weaponId === "p90"
-        ? P90_MATERIAL_COLORS.fallback
-        : "#17191b";
-    fallback.material = colorMaterial(scene, fallbackColor, { emissive: BABYLON.Color3.FromHexString("#030303") });
+    fallback.material = colorMaterial(scene, "#17191b", { emissive: BABYLON.Color3.FromHexString("#030303") });
     fallback.isPickable = false;
     fallback.renderingGroupId = 2;
   }
@@ -342,20 +316,12 @@ export function setReloadPartVisible(controller, partName, visible) {
   roots.forEach((root) => root.setEnabled?.(visible));
 }
 
-export function setHeldPartVisible(controller, visible, partName = "magazine") {
-  const pivot = partName === "rocket" ? controller?.heldRocketPivot : controller?.heldMagazinePivot;
-  pivot?.setEnabled(Boolean(visible));
+export function setHeldPartVisible(controller, visible) {
+  controller?.heldMagazinePivot?.setEnabled(Boolean(visible));
 }
 
-// 按武器构建材质映射：P90 多色（#2/#3/fallback），其他武器单色 + accent 双色
+// 按武器构建材质映射：单色 base + accent 双色
 function buildMaterialsForWeapon(scene, weaponId) {
-  if (weaponId === "p90") {
-    return {
-      "#2": colorMaterial(scene, P90_MATERIAL_COLORS["#2"], { emissive: BABYLON.Color3.FromHexString("#050806") }),
-      "#3": colorMaterial(scene, P90_MATERIAL_COLORS["#3"], { emissive: BABYLON.Color3.FromHexString("#080909") }),
-      fallback: colorMaterial(scene, P90_MATERIAL_COLORS.fallback, { emissive: BABYLON.Color3.FromHexString("#060606") }),
-    };
-  }
   const baseColor = FIRST_PERSON_WEAPON_COLORS[weaponId] ?? FIRST_PERSON_WEAPON_COLORS.fallback;
   return {
     base: colorMaterial(scene, baseColor, { emissive: BABYLON.Color3.FromHexString("#070808") }),
@@ -363,17 +329,9 @@ function buildMaterialsForWeapon(scene, weaponId) {
   };
 }
 
-// P90 按 element texture key 选多色材质；其他武器按尺寸选 base/accent
-function selectMaterialForElement(element, materials, weaponId) {
-  if (weaponId === "p90") {
-    return materials[getElementTextureKey(element)] ?? materials.fallback;
-  }
+// 按尺寸选 base/accent 材质
+function selectMaterialForElement(element, materials) {
   return shouldUseAccentMaterial(element) ? materials.accent : materials.base;
-}
-
-function getElementTextureKey(element) {
-  const face = Object.values(element.faces ?? {})[0];
-  return face?.texture ?? "fallback";
 }
 
 function buildSolidElementMesh(element, scene, parent, weaponId, index) {
@@ -432,7 +390,7 @@ function shouldUseAccentMaterial(element) {
 export function buildBlockbenchMesh(model, scene, parent, weaponId, materials) {
   const group = new BABYLON.TransformNode(`${weaponId}-blockbench-model`, scene);
   group.parent = parent;
-  // group 基准变换与 P90 保持一致：略微下移前移，Y 轴 180° 翻转朝向相机
+  // group 基准变换：略微下移前移，Y 轴 180° 翻转朝向相机
   group.position.set(0, -0.06, 0.08);
   group.rotation.set(0, Math.PI, 0);
   group.scaling.setAll(1.05);
@@ -504,7 +462,7 @@ function buildElementMesh(element, scene, parent, weaponId, index, materials) {
   const textureKey = firstFace?.texture ?? "fallback";
   mesh.material = materials[textureKey] ?? materials.fallback;
 
-  // rotation 处理：复用 P90 已验证的 pivot 方案
+  // rotation 处理：Blockbench element 旋转 pivot 方案
   const rotation = element.rotation;
   const angle = rotation?.angle ?? 0;
   const hasRotation = Math.abs(angle) > 0.001;

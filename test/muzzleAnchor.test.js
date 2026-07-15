@@ -1,5 +1,5 @@
 // TaCZ 原生武器 muzzleAnchor 自动定位测试
-// 验证 muzzleAnchor 从 geo bone（muzzle_pos/muzzle_flash/rocket_head）自动计算，
+// 验证 muzzleAnchor 从 geo bone（muzzle_pos/muzzle_flash/muzzle_default）自动计算，
 // 不再依赖手填 muzzleLocalPosition fallback 值
 import test from "node:test";
 import assert from "node:assert/strict";

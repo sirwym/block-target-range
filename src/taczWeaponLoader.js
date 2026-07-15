@@ -61,9 +61,11 @@ export function createTaczWeaponFromData(weaponId, scene, displayJson, geoJson, 
   const animationPath = binding?.profile?.animationPath || `assets/tacz/animations/${weaponId}.animation.json`;
 
   // visibilityProfile 透传给 createTaczGeoModel，统一可见性规则
+  // disableCentering 透传：第一人称路径需要禁用 centeringNode 以保持 marker 定位正确
   const model = createTaczGeoModel(scene, geoJson, textureUrl, {
     weaponId,
     visibilityProfile: options.visibilityProfile,
+    disableCentering: options.disableCentering,
   });
 
   return {

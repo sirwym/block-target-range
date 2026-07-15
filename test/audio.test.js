@@ -4,21 +4,21 @@ import { extractWeaponId, shouldThrottle, loadAudioClip, playSegmentedReload } f
 
 test("extractWeaponId parses fire/reload/draw suffixes", () => {
   assert.equal(extractWeaponId("m4Fire"), "m4");
-  assert.equal(extractWeaponId("p90Fire"), "p90");
-  assert.equal(extractWeaponId("glock17Reload"), "glock17");
-  assert.equal(extractWeaponId("p90Draw"), "p90");
+  assert.equal(extractWeaponId("m4Shoot"), "m4");
+  assert.equal(extractWeaponId("deagle_goldenReload"), "deagle_golden");
+  assert.equal(extractWeaponId("awpDraw"), "awp");
   assert.equal(extractWeaponId("unknown"), null);
 });
 
 test("extractWeaponId parses V2 Shoot/ReloadEmpty/ReloadTactical suffixes", () => {
-  assert.equal(extractWeaponId("glock17Shoot"), "glock17");
+  assert.equal(extractWeaponId("deagle_goldenShoot"), "deagle_golden");
   assert.equal(extractWeaponId("m4Shoot"), "m4");
   assert.equal(extractWeaponId("ak47Shoot"), "ak47");
   assert.equal(extractWeaponId("awpShoot"), "awp");
-  assert.equal(extractWeaponId("p90Shoot"), "p90");
-  assert.equal(extractWeaponId("glock17ReloadEmpty"), "glock17");
+  assert.equal(extractWeaponId("m95Shoot"), "m95");
+  assert.equal(extractWeaponId("deagle_goldenReloadEmpty"), "deagle_golden");
   assert.equal(extractWeaponId("m4ReloadTactical"), "m4");
-  assert.equal(extractWeaponId("glock17Draw"), "glock17");
+  assert.equal(extractWeaponId("deagle_goldenDraw"), "deagle_golden");
   assert.equal(extractWeaponId("awpDraw"), "awp");
 });
 
@@ -29,15 +29,15 @@ test("extractWeaponId parses segmented reload magout/magin suffixes", () => {
   assert.equal(extractWeaponId("ak47ReloadTacticalMagin"), "ak47");
   assert.equal(extractWeaponId("awpReloadEmptyMagout"), "awp");
   assert.equal(extractWeaponId("awpReloadTacticalMagin"), "awp");
-  assert.equal(extractWeaponId("p90ReloadEmptyMagout"), "p90");
-  assert.equal(extractWeaponId("p90ReloadTacticalMagin"), "p90");
+  assert.equal(extractWeaponId("m95ReloadEmptyMagout"), "m95");
+  assert.equal(extractWeaponId("m95ReloadTacticalMagin"), "m95");
 });
 
 test("shouldThrottle skips non-fire sounds", () => {
   assert.equal(shouldThrottle("m4Reload", 10, 0, 5), false);
-  assert.equal(shouldThrottle("p90Draw", 10, 0, 5), false);
+  assert.equal(shouldThrottle("awpDraw", 10, 0, 5), false);
   assert.equal(shouldThrottle("ak47ReloadEmptyMagout", 10, 0, 5), false);
-  assert.equal(shouldThrottle("glock17ReloadEmpty", 10, 0, 5), false);
+  assert.equal(shouldThrottle("deagle_goldenReloadEmpty", 10, 0, 5), false);
 });
 
 test("shouldThrottle blocks rapid fire when enough sources are active", () => {
@@ -69,7 +69,7 @@ test("shouldThrottle blocks when active source cap is reached", () => {
     "8 active sources blocks any fire"
   );
   assert.equal(
-    shouldThrottle("p90Shoot", 1000, 0, 9),
+    shouldThrottle("m95Shoot", 1000, 0, 9),
     true,
     "over cap blocks"
   );

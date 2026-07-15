@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-const WEAPONS = ["deagle_golden", "m107", "m95", "ak47", "m4"];
+const WEAPONS = ["m4", "m95", "deagle_golden", "awp", "ak47"];
 const ENABLED_WEAPONS = new Set(WEAPONS);
 
 async function openGame(page) {
@@ -28,7 +28,7 @@ async function selectWeaponAndWaitForModel(page, weaponId) {
   const debugLogs = [];
   page.on("console", (msg) => {
     const text = msg.text();
-    if ((msg.type() === "log" || msg.type() === "error") && (text.includes("[weapon-debug]") || text.includes("[rpg7-debug]"))) {
+    if ((msg.type() === "log" || msg.type() === "error") && text.includes("[weapon-debug]")) {
       debugLogs.push(text);
     }
   });
@@ -91,39 +91,30 @@ async function selectWeaponAndWaitForModel(page, weaponId) {
   return page.evaluate(() => window.__blockTargetRangeDebug.snapshot());
 }
 
-// V2 新枪（Bedrock geo）模型比旧 Blockbench elements 更完整，包含弹匣/握把/枪托等部件，
-// 投影范围更大且偏左上，需要独立阈值。旧 5 把枪沿用默认值。
+// 5 把武器全部走 TaCZ 原生 Bedrock geo 路径，模型包含弹匣/握把/枪托等部件，
+// 投影范围更大且偏左上，需要独立阈值。
 // maxMinY 防止散架零件飞到屏幕顶部（散架时 minY 贴 0）
 // minAreaRatio 针对修复后投影变小的手枪（deagle_golden 散架时面积大，修复后正常变小）
-// glock17/awp 走 TaCZ geo 路径后模型几何特性变化（glock17 X 方向 extent 仅 0.53，
-// awp 长枪管 Z 方向长但正面投影窄），默认 minWidth=175/minCenterX=760 不再适用
+// awp 长枪管 Z 方向长但正面投影窄，默认 minWidth=175/minCenterX=760 不再适用
 const SCREEN_BOUNDS_OVERRIDES = {
-  glock17:       { minAreaRatio: 0.01, minWidth: 150, minCenterX: 300, minCenterY: 420, minHeight: 120 },
   m4:            { minAreaRatio: 0.01, minWidth: 200, minCenterX: 700, minCenterY: 380, minHeight: 100 },
   ak47:          { minAreaRatio: 0.01, minWidth: 70,  minCenterX: 400, minCenterY: 400, minHeight: 120 },
   awp:           { minAreaRatio: 0.01, minWidth: 40,  minCenterX: 400, minCenterY: 360, minHeight: 100 },
-  p90:           { minAreaRatio: 0.01, minWidth: 250, minCenterX: 600, minCenterY: 450, minHeight: 120 },
   deagle_golden: { maxArea: 0.40, minAreaRatio: 0.03, minWidth: 40,  minCenterX: 600, minCenterY: 400, maxMinY: 350, minHeight: 80 },
-  rpg7:          { maxArea: 0.70, minAreaRatio: 0.04, minWidth: 350, minCenterX: 400, minCenterY: 420, minHeight: 120 },
-  m107:          { maxArea: 0.70, minAreaRatio: 0.04, minWidth: 250, minCenterX: 400, minCenterY: 340, minHeight: 120 },
   m95:           { maxArea: 0.80, minAreaRatio: 0.04, minWidth: 70,  minCenterX: 600, minCenterY: 400, minHeight: 80 },
 };
 
-// 9 把武器全部走 TaCZ 原生 Bedrock geo 路径（Phase 5 统一迁移）
+// 5 把武器全部走 TaCZ 原生 Bedrock geo 路径
 const NATIVE_WEAPONS = new Set(WEAPONS);
 
 // 原生武器 local bounds extent 上限（散架时膨胀 4-6 倍）。
 // 使用 TaCZ geo root 本地空间，不受第一人称 root 旋转/缩放影响。
 const NATIVE_LOCAL_BOUNDS_LIMITS = { extentX: 1.50, extentY: 3.50, extentZ: 7.00 };
 const NATIVE_LOCAL_BOUNDS_OVERRIDES = {
-  glock17:       { extentX: 0.80, extentY: 1.20, extentZ: 1.20 },
   m4:            { extentX: 3.80, extentY: 2.00, extentZ: 3.60 },
   ak47:          { extentX: 0.50, extentY: 1.40, extentZ: 3.00 },
   awp:           { extentX: 0.50, extentY: 0.80, extentZ: 3.80 },
-  p90:           { extentX: 0.70, extentY: 1.20, extentZ: 1.60 },
   deagle_golden: { extentX: 0.35, extentY: 1.20, extentZ: 1.40 },
-  rpg7:          { extentX: 1.20, extentY: 1.50, extentZ: 5.00 },
-  m107:          { extentX: 1.20, extentY: 3.00, extentZ: 6.50 },
   m95:           { extentX: 0.90, extentY: 3.20, extentZ: 6.70 },
 };
 
@@ -161,17 +152,13 @@ function expectNativeModelHealthy(snapshot, weaponId) {
 }
 
 // 不同武器的枪口前端区域阈值（relativeX/Y 越小越靠枪口前端）
-// 旧 5 把枪用紧凑阈值；V2 新枪的 Bedrock geo 修复后模型正确组装，
+// 5 把武器 Bedrock geo 修复后模型正确组装，
 // 枪口在枪管最前端，relativeX 接近 1.0（模型右边缘），relativeY 在 0.3-0.6 之间。
 const MUZZLE_FRONT_THRESHOLDS = {
-  glock17: { x: 0.24, y: 0.24 },
   m4: { x: 0.25, y: 0.25 },
   ak47: { x: 0.25, y: 0.25 },
   awp: { x: 0.2, y: 0.22 },
-  p90: { x: 0.24, y: 0.24 },
   deagle_golden: { x: 1.20, y: 0.70 },
-  rpg7: { x: 1.20, y: 1.10 },  // RPG 火箭筒的 rocket_head 在模型底部，relativeY 接近 1.0
-  m107: { x: 1.20, y: 1.10 },  // 反器材狙击的 muzzle_pos 在模型底部
   m95: { x: 1.20, y: 1.20 },   // 重型栓动的 muzzle_pos 在模型底部，模型高投影大
 };
 
@@ -223,8 +210,8 @@ test.describe("武器系统视觉验收", () => {
     expect(errors).toEqual([]);
   });
 
-  test("进入靶场后 1-9 武器 3D 模型可见并截图", async ({ page, context }) => {
-    test.setTimeout(60000); // 9 把武器循环加载+检查+截图，需要更长超时
+  test("进入靶场后 1-5 武器 3D 模型可见并截图", async ({ page, context }) => {
+    test.setTimeout(60000); // 5 把武器循环加载+检查+截图，需要更长超时
     const errors = await openGame(page);
 
     for (const weaponId of WEAPONS) {
@@ -249,8 +236,8 @@ test.describe("武器系统视觉验收", () => {
     expect(errors).toEqual([]);
   });
 
-  test("1-9 武器射击、枪口火焰和换弹状态正常", async ({ page, context }) => {
-    test.setTimeout(150000); // 9 把武器循环射击+换弹+截图；TaCZ 原生 geo 新枪较重，避免截图阶段临界超时
+  test("1-5 武器射击、枪口火焰和换弹状态正常", async ({ page, context }) => {
+    test.setTimeout(150000); // 5 把武器循环射击+换弹+截图；TaCZ 原生 geo 新枪较重，避免截图阶段临界超时
     const errors = await openGame(page);
 
     for (const weaponId of WEAPONS) {
@@ -292,22 +279,6 @@ test.describe("武器系统视觉验收", () => {
     }
     await writeFiringContactSheet(context, WEAPONS);
 
-    expect(errors).toEqual([]);
-  });
-
-  test("P90 使用 3D 模型路径而不是 2D fallback", async ({ page }) => {
-    test.skip(!ENABLED_WEAPONS.has("p90"), "当前运行武器列表不包含 p90，跳过旧专项验收");
-    const errors = await openGame(page);
-    const canvas = await page.locator("canvas").first();
-    await expect(canvas).toBeVisible();
-
-    const snapshot = await selectWeaponAndWaitForModel(page, "p90");
-    expect(snapshot.activeModel.failed).toBe(false);
-    expect(snapshot.activeModel.source).toBe("tacz-first-person");
-    expect(snapshot.activeModel.partCount).toBeGreaterThan(20);
-    expect(snapshot.activeModel.visibleMeshCount).toBeGreaterThan(20);
-    expectUsableScreenProjection(snapshot, "p90");
-    expect(snapshot.weaponPlaneExists).toBe(false);
     expect(errors).toEqual([]);
   });
 

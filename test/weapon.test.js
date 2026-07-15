@@ -20,7 +20,7 @@ test("bow animation frame follows shot timer", () => {
 });
 
 test("weapon configs define all firearms", () => {
-  assert.deepEqual(WEAPON_ORDER, ["deagle_golden", "m107", "m95", "ak47", "m4"]);
+  assert.deepEqual(WEAPON_ORDER, ["m4", "m95", "deagle_golden", "awp", "ak47"]);
   for (const id of WEAPON_ORDER) {
     const weapon = WEAPON_CONFIG[id];
     assert.equal(weapon.id, id);
@@ -41,9 +41,6 @@ test("weapon configs define all firearms", () => {
       `${id} muzzleLocalPosition`
     );
   }
-  // 第一人称视觉排查阶段：p90 等枪的配置保留以便回滚/对照，但从运行列表 WEAPON_ORDER 中过滤
-  assert.ok(WEAPON_CONFIG.p90, "p90 config is kept for rollback/comparison");
-  assert.ok(!WEAPON_ORDER.includes("p90"), "p90 is excluded from first-person debug weapon order");
 });
 
 test("weapon state spends ammo and blocks fire during cooldown", () => {
@@ -137,7 +134,8 @@ test("automatic weapons can fire again while semi automatic weapons stay locked"
 });
 
 test("switching weapons preserves each magazine and cancels reload", () => {
-  let state = createWeaponState(WEAPON_ORDER, WEAPON_CONFIG);
+  // createWeaponState 默认 currentWeaponId = WEAPON_ORDER[0] = "m4"，需先切换到 deagle_golden
+  let state = selectWeapon(createWeaponState(WEAPON_ORDER, WEAPON_CONFIG), "deagle_golden", WEAPON_CONFIG);
   state = fireWeapon(state, WEAPON_CONFIG.deagle_golden).state;
   state = startReload(state, WEAPON_CONFIG.deagle_golden).state;
   state = selectWeapon(state, "m4", WEAPON_CONFIG);

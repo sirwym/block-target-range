@@ -3,7 +3,7 @@
 //
 // 规则：
 // - defaultHiddenBones：默认隐藏的 bone 子树（保留 bone 节点，动画仍可驱动）
-// - hiddenBoneCubes：按 boneName 隐藏特定 cube 索引（M107/M95 远端透视碎片修复）
+// - hiddenBoneCubes：按 boneName 隐藏特定 cube 索引（M95 远端透视碎片修复）
 // - heldItemBones：换弹手持物 bone，默认隐藏，换弹时 setEnabled(true)
 // - shellBones：弹壳/抛壳物 bone，默认隐藏
 // - sightVariants：瞄具变体，folded 默认隐藏，raised 默认可见
@@ -21,23 +21,28 @@ export const DEFAULT_VISIBILITY_PROFILE = {
   animationControlledBones: [],
 };
 
-// 9 把武器的可见性配置
+// 5 把目标武器的可见性配置（m4/m95/deagle_golden/awp/ak47）
+// Phase3v9：hiddenBoneCubes 全部清空，等待 MCP 重新诊断后添加最小规则集
+// defaultHiddenBones 只保留结构性变体隐藏（弹匣扩展/瞄具折叠/枪托附件/抛壳口），
+// 移除所有基于 MCP 诊断的 outlier 隐藏条目
 const VISIBILITY_PROFILES = {
-  glock17: {
-    defaultHiddenBones: [],
-    hiddenBoneCubes: {},
-    heldItemBones: ["additional_magazine", "mag_and_bullet"],
-    shellBones: [],
-    sightVariants: {},
-    magazineVariants: {},
-    animationControlledBones: ["slide", "additional_magazine"],
-  },
-
   m4: {
     // m4 geo 同时包含扩展弹匣和折叠瞄具变体；静态展示只保留默认枪体。
-    // oem_stock_tactical/group23 先按结构枪托保留，不能用隐藏规则掩盖潜在坐标问题。
-    defaultHiddenBones: ["additional_magazine", "mag_extended_1", "mag_extended_2", "mag_extended_3", "sight_folded"],
-    hiddenBoneCubes: {},
+    // oem_stock_tactical 是战术枪托附件变体（ak47 已隐藏同类附件）
+    // rings3: pivot y=-16 异常低，子 bone bone38/bone70 rotation [90,0,-30/-60] 任何 pose 下飞出屏幕
+    defaultHiddenBones: ["additional_magazine", "mag_extended_1", "mag_extended_2", "mag_extended_3", "sight_folded", "oem_stock_tactical", "rings3"],
+    // Phase3v9 MCP 诊断最小规则集（pose [0,π/2,π/2] z=1.15）：
+    // bone2: 1 cube visible outlier (area 1980)
+    // fore_sight3/grip2: 全部 cube projectionUnreliable，枪管附件/握把变体
+    // upper2 [18,25]: 大块 visible outlier (area 5.2M/3.3M)，近裁面放大碎片
+    // lower2 [12,47,51]: cube 51 visible outlier (area 3.3M) + 12/47 unreliable
+    hiddenBoneCubes: {
+      bone2: true,
+      fore_sight3: true,
+      grip2: true,
+      upper2: [18, 25],
+      lower2: [12, 47, 51],
+    },
     heldItemBones: ["mag_and_lefthand"],
     shellBones: [],
     sightVariants: { folded: "sight_folded", raised: null },
@@ -46,13 +51,21 @@ const VISIBILITY_PROFILES = {
   },
 
   ak47: {
-    // AK47 资源里带多套枪托/弹匣附件。Phase2 静态模式只显示默认 AKM + stock_default。
+    // AK47 资源里带多套枪托/弹匣附件。静态模式只显示默认 AKM + stock_default。
     defaultHiddenBones: [
       "additional_magazine",
       "mag_extended_1", "mag_extended_2", "mag_extended_3",
       "oem_stock_heavy", "oem_stock_tactical", "ar_stock_adapter",
     ],
-    hiddenBoneCubes: {},
+    // Phase3v9 MCP 诊断最小规则集：
+    // steel: 7 cube projectionUnreliable，stock_default 下枪托金属部件
+    // wood: 12 cube projectionUnreliable，stock_default 下枪托木质部件
+    // muzzle_default: 1 cube projectionUnreliable，枪口制退器最前端
+    hiddenBoneCubes: {
+      steel: true,
+      wood: true,
+      muzzle_default: true,
+    },
     heldItemBones: ["lefthand_and_mag"],
     shellBones: [],
     sightVariants: {},
@@ -70,18 +83,7 @@ const VISIBILITY_PROFILES = {
     animationControlledBones: ["bolt_group", "bolt_rotate", "mag_and_lefthand"],
   },
 
-  p90: {
-    defaultHiddenBones: [],
-    hiddenBoneCubes: {},
-    heldItemBones: ["p90_mag_standard"],
-    shellBones: [],
-    sightVariants: {},
-    magazineVariants: {},
-    animationControlledBones: ["pull", "ump45_bolt", "p90_mag_standard"],
-  },
-
   deagle_golden: {
-    // 从 taczGeoModel DEFAULT_HIDDEN_BONE_ROOTS.deagle_golden 迁移
     // mag_extended_* 是扩展弹匣变体，additional_magazine 是换弹手持物
     defaultHiddenBones: ["mag_extended_1", "mag_extended_2", "mag_extended_3", "additional_magazine"],
     hiddenBoneCubes: {},
@@ -92,47 +94,17 @@ const VISIBILITY_PROFILES = {
     animationControlledBones: ["slide2", "additional_magazine"],
   },
 
-  rpg7: {
-    defaultHiddenBones: [],
-    hiddenBoneCubes: {},
-    // RPG7 手持物是火箭弹（mag_hand bone）
-    heldItemBones: ["mag_hand"],
-    shellBones: [],
-    sightVariants: {},
-    magazineVariants: {},
-    animationControlledBones: ["rocket", "mag_hand"],
-  },
-
-  m107: {
-    // 从 taczGeoModel DEFAULT_HIDDEN_BONE_ROOTS.m107 迁移
-    // sight_folded 是折叠瞄具，mag_extended_* 是扩展弹匣，bullet_shell* 是弹壳
-    defaultHiddenBones: [
-      "sight_folded", "mag_extended_1", "mag_extended_2", "mag_extended_3",
-      "bullet_shell", "bullet_shell2", "bullet_shell3",
-    ],
-    // 从 taczGeoModel DEFAULT_HIDDEN_BONE_CUBES.m107 迁移
-    // upper 上的远端细斜片在第一人称透视下脱离枪体漂到屏幕上方
-    hiddenBoneCubes: {
-      upper: [18, 33, 35, 37, 40, 42, 44, 46],
-      group12: true,
-    },
-    heldItemBones: ["mag_and_bullet"],
-    shellBones: ["bullet_shell", "bullet_shell2", "bullet_shell3"],
-    sightVariants: { folded: "sight_folded", raised: null },
-    magazineVariants: { standard: [], extended: ["mag_extended_1", "mag_extended_2", "mag_extended_3"] },
-    animationControlledBones: ["bolt", "gun_barrel", "mag_and_bullet"],
-  },
-
   m95: {
-    // 从 taczGeoModel DEFAULT_HIDDEN_BONE_ROOTS.m95 迁移
     // sight_folded 是折叠瞄具，mag_extended_* 是扩展弹匣，shell_ejection 是抛壳口
     defaultHiddenBones: [
       "sight_folded", "mag_extended_1", "mag_extended_2", "mag_extended_3", "shell_ejection",
     ],
-    // 从 taczGeoModel DEFAULT_HIDDEN_BONE_CUBES.m95 迁移
-    // M 制退器最前端的上缘细片在第一人称视角中过度透视，表现为天空中的黑色碎块
+    // Phase3v12 MCP 诊断最小规则集（top pose [0,π,π/2] position [-0.2,-0.3,2.2]）：
+    // bone 子树（boneChain: bone > body > m95_body）的 8 个 cube 在当前 pose 下飞到屏幕右侧外
+    // （screenBounds.maxX=822，这些 cube 的 minX=846-935），属于 body 子树的合理 cube，
+    // 但 pose [0,π,π/2] 会让它们甩出主屏幕。隐藏后 mainOutlierCount=0 ≤ 4，distance=0 ≤ 50。
     hiddenBoneCubes: {
-      M: [16, 17, 34, 35, 40, 41],
+      bone: [2, 4, 5, 14, 15, 16, 17, 90],
     },
     heldItemBones: ["mag_and_lefthand", "mag_and_bullet"],
     shellBones: ["shell_ejection"],

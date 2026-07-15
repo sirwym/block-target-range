@@ -45,7 +45,7 @@ test("reload 期间不能 shoot 或 inspect 打断", () => {
 });
 
 test("reload_empty 和 reload_tactical 使用 profile 中对应动画", () => {
-  const controller = makeController("p90");
+  const controller = makeController("m4");
   playWeaponAnimationAction(controller, "reload_empty", { force: true });
   assert.equal(controller.animationName, "reload_empty");
   playWeaponAnimationAction(controller, "reload_tactical", { force: true });
@@ -73,14 +73,6 @@ test("static_idle 输出左右手 position/rotation/scale 且坐标有限", () =
       assert.ok(vector.every(Number.isFinite), "hand vector finite");
     }
   }
-});
-
-test("RPG7 reload 走装填物 held 逻辑", () => {
-  const controller = makeController("rpg7");
-  playWeaponAnimationAction(controller, "reload_empty", { force: true });
-  controller.time = 1.0;
-  const pose = sampleWeaponAnimationPose(controller);
-  assert.ok(pose.held, "RPG7 has held rocket/mag_hand pose");
 });
 
 test("shoot 可以排队 bolt 动作", () => {
@@ -248,7 +240,7 @@ test("真实接线：惰性同步后 animationController 走原生 isTaczNative 
 // ===== Phase 6: ads_in/ads_out 动画状态扩展测试 =====
 
 test("canPlayWeaponAction 允许 ads_in 打断 idle", () => {
-  const controller = makeController("glock17");
+  const controller = makeController("deagle_golden");
   assert.equal(playWeaponAnimationAction(controller, "draw", { force: true }), true);
   // draw 结束后回到 idle
   updateWeaponAnimation(controller, 10);
@@ -280,15 +272,15 @@ test("getAnimationName 映射 ads_in → adsIn", () => {
 });
 
 test("getAnimationName ads_in 在 profile 无 adsIn 字段时返回 null", () => {
-  // 现有 9 把武器的 profile 没有 adsIn/adsOut 字段，应返回 null（不静默回退到其他动画）
-  const controller = makeController("p90");
+  // 现有 5 把目标武器的 profile 没有 adsIn/adsOut 字段，应返回 null（不静默回退到其他动画）
+  const controller = makeController("m4");
   assert.equal(getAnimationName(controller.profile, "ads_in"), null);
   assert.equal(getAnimationName(controller.profile, "ads_out"), null);
 });
 
 test("playWeaponAnimationAction ads_in 缺少动画时返回 false 并设置诊断", () => {
   // 缺少 TaCZ 动画时必须显示诊断，不允许静默回退到旧手写动画
-  const controller = makeController("glock17");
+  const controller = makeController("deagle_golden");
   const result = playWeaponAnimationAction(controller, "ads_in", { force: true });
   assert.equal(result, false, "ads_in 缺少动画时返回 false");
   assert.equal(controller.status, "error", "status 设为 error");

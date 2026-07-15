@@ -53,7 +53,10 @@ test("rig 层级正确：parent 链完整", () => {
   });
 
   assert.equal(rig.cameraAnchor.parent, camera, "cameraAnchor parent = camera");
-  assert.equal(rig.weaponRoot.parent, rig.cameraAnchor, "weaponRoot parent = cameraAnchor");
+  assert.equal(rig.taczRenderRoot.parent, rig.cameraAnchor, "taczRenderRoot parent = cameraAnchor");
+  assert.equal(rig.weaponRoot.parent, rig.taczRenderRoot, "weaponRoot parent = taczRenderRoot");
+  assert.ok(Math.abs(rig.cameraAnchor.rotation.y - Math.PI) < 0.0001, "cameraAnchor 保持 Y180 基线补偿");
+  assert.ok(Math.abs(rig.taczRenderRoot.rotation.z - Math.PI) < 0.0001, "taczRenderRoot 保持 TaCZ Z180 翻转");
   assert.equal(rig.modelRoot.parent, rig.weaponRoot, "modelRoot parent = weaponRoot");
   assert.equal(rig.aimAnchor.parent, rig.modelRoot, "aimAnchor parent = modelRoot");
   assert.equal(rig.muzzleAnchor.parent, rig.modelRoot, "muzzleAnchor parent = modelRoot");

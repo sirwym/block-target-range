@@ -9,7 +9,7 @@
 // 部件级动画：从 V2 glTF 提取弹匣/套筒的 translation/rotation 通道，
 // 再按每把枪 reloadParts.*.animation 的 distance/axisMap/sign 校准后驱动 pivot。
 //
-// P90 顶部弹匣：左手向上移动（y 正向），其他枪向下（y 负向）。
+// 弹匣位向下偏移（y 负向）。
 // AWP 拉栓：V2 cooldown 已含拉栓时间，在 progress > 0.85 时左手移到枪栓位做后拉动作。
 
 import * as BABYLON from "@babylonjs/core";
@@ -102,31 +102,21 @@ function addVec3(a, b, scale = 1) {
   return [a[0] + b[0] * scale, a[1] + b[1] * scale, a[2] + b[2] * scale];
 }
 
-// 计算弹匣位（P90 向上，其他枪向下）
-function getMagPos(defaultPos, weaponId) {
-  if (weaponId === "p90") {
-    // P90 顶部弹匣：向上偏移
-    return [defaultPos[0], defaultPos[1] + MAG_OFFSET, defaultPos[2] + 0.1];
-  }
-  // 其他枪：向下偏移，z 略向枪口
+// 计算弹匣位（向下偏移，z 略向枪口）
+function getMagPos(defaultPos) {
   return [defaultPos[0], defaultPos[1] - MAG_OFFSET, defaultPos[2] + MAG_Z_OFFSET];
 }
 
-// 计算拔出终点（弹匣脱离枪身的极限位置）
-function getPullPos(magPos, weaponId) {
-  if (weaponId === "p90") {
-    // P90 向上拔出
-    return [magPos[0], magPos[1] + PULL_EXTRA, magPos[2]];
-  }
-  // 其他枪向下拔出
+// 计算拔出终点（弹匣向下脱离枪身的极限位置）
+function getPullPos(magPos) {
   return [magPos[0], magPos[1] - PULL_EXTRA, magPos[2]];
 }
 
 // 采样左手姿态（位置+旋转）
 function sampleLeftHandPose(progress, timeline, weaponId, modelConfig, magazineTransform = null) {
   const defaultPos = modelConfig.handAnchors.leftHand;
-  const magPos = getMagPos(defaultPos, weaponId);
-  const pullPos = getPullPos(magPos, weaponId);
+  const magPos = getMagPos(defaultPos);
+  const pullPos = getPullPos(magPos);
   const isAwp = weaponId === "awp";
 
   // AWP 拉栓：progress > 0.85 时左手移到枪栓位做后拉动作
@@ -233,19 +223,18 @@ function poseHasMotion(pose) {
   return [...position, ...rotation].some((value) => Math.abs(value) > 0.0001);
 }
 
-function updateHeldPart(controller, taczPose, weaponId) {
-  const isRocket = weaponId === "rpg7";
-  const pivot = isRocket ? controller?.heldRocketPivot : controller?.heldMagazinePivot;
+function updateHeldPart(controller, taczPose) {
+  const pivot = controller?.heldMagazinePivot;
   if (!pivot) return;
   const heldVisible = taczPose?.held && (taczPose.action?.startsWith("reload") || taczPose.action === "inspect" || taczPose.action === "inspect_empty");
   if (heldVisible) {
     applyPoseToTransform(pivot, taczPose.held);
-    setHeldPartVisible(controller, true, isRocket ? "rocket" : "magazine");
-    if (!isRocket) setReloadPartVisible(controller, "magazine", false);
+    setHeldPartVisible(controller, true);
+    setReloadPartVisible(controller, "magazine", false);
   } else {
     applyPoseToTransform(pivot, { position: [0, 0, 0], rotation: [0, 0, 0] });
-    setHeldPartVisible(controller, false, isRocket ? "rocket" : "magazine");
-    if (!isRocket) setReloadPartVisible(controller, "magazine", true);
+    setHeldPartVisible(controller, false);
+    setReloadPartVisible(controller, "magazine", true);
   }
 }
 
@@ -263,7 +252,7 @@ function applyTaczWeaponPose(hands, { taczPose, controller, weaponId }) {
       resetTaczBonesInline(controller);
     } else {
       updateTaczPartPivots(controller, null);
-      updateHeldPart(controller, null, weaponId);
+      updateHeldPart(controller, null);
     }
     return false;
   }
@@ -277,7 +266,7 @@ function applyTaczWeaponPose(hands, { taczPose, controller, weaponId }) {
   addPoseToTransform(controller?.root, taczPose.root);
   applyHandAnimationPose(hands, taczPose, 1);
   updateTaczPartPivots(controller, taczPose);
-  updateHeldPart(controller, taczPose, weaponId);
+  updateHeldPart(controller, taczPose);
   return true;
 }
 
@@ -336,11 +325,13 @@ function applyTaczNativeBonePose(hands, controller, taczPose, weaponId) {
     }
   }
 
-  // 2. 手部：从 righthand/lefthand bone 采样世界坐标，应用到 handModel
-  // animationController.boneMap 是 bone 名字映射（{ root, rightHand, leftHand, ... }）
-  // weapon model controller 没有 boneMap/config/calibration，需要从 animationController 获取
-  const config = animCtrl?.config;
-  applyHandBonePose(hands, boneMap, taczPose, configBoneMap, config);
+  // 2. 手部：TaCZ functional hand 路径由 adapter 在动画 bone 更新后读取
+  // righthand_pos/lefthand_pos 完整矩阵。这里不再用 righthand/lefthand 的动画 delta
+  // 直接驱动 Steve 手，避免手根和功能节点处在两个不同空间导致漂移。
+  if (!controller?.useFunctionalHandAnchors) {
+    const config = animCtrl?.config;
+    applyHandBonePose(hands, boneMap, taczPose, configBoneMap, config);
+  }
 
   // 3. root bone 变换应用到 controller.root（weapon root TransformNode）
   //    root bone 的变换是相对动画空间的，需要额外缩放
@@ -352,9 +343,11 @@ function applyTaczNativeBonePose(hands, controller, taczPose, weaponId) {
     const dx = (rootTransform.position?.[0] ?? 0) - (rootIdle.position?.[0] ?? 0);
     const dy = (rootTransform.position?.[1] ?? 0) - (rootIdle.position?.[1] ?? 0);
     const dz = (rootTransform.position?.[2] ?? 0) - (rootIdle.position?.[2] ?? 0);
-    controller.root.position.x += dx * rootScale;
-    controller.root.position.y += dy * rootScale;
-    controller.root.position.z += dz * rootScale;
+    controller.root.position.set(
+      dx * rootScale,
+      dy * rootScale,
+      dz * rootScale
+    );
   }
 
   // 4. 手持物：原生 geo 中 mag_and_lefthand/rocket bone 已有 mesh，

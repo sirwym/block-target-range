@@ -1,21 +1,22 @@
 import * as BABYLON from "@babylonjs/core";
 
-// 第一人称持物 rig：统一 9 把武器（及未来冷兵器）的第一人称锚点层级。
+// 第一人称持物 rig：统一 5 把武器（及未来冷兵器）的第一人称锚点层级。
 // 不消费 TaCZ 资源，只接受校准数据 + pose 输入，由 taczFirstPersonAdapter 驱动。
 //
 // 层级：
 //   camera (UniversalCamera)
-//   └── cameraAnchor (TransformNode, 屏幕中心基准, position=screenOffset)
-//       ├── weaponRoot (TransformNode, 应用 hipPose/adsPose/inspectPose)
-//       │   ├── modelRoot (TransformNode, 模型挂载点, scaling=modelScale)
-//       │   │   ├── aimAnchor (TransformNode, 瞄具锚点, ADS 时回中心)
-//       │   │   ├── muzzleAnchor (TransformNode, 枪口锚点)
-//       │   │   ├── rightGripAnchor (TransformNode, 右手握把)
-//       │   │   └── leftGripAnchor (TransformNode, 左手托枪/换弹)
-//       │   ├── rightHandRoot (TransformNode, 右手根, 独立于 modelRoot 避免缩放影响)
-//       │   ├── leftHandRoot (TransformNode, 左手根)
-//       │   └── heldItemRoot (TransformNode, 手持物: 弹匣/火箭弹)
-//       └── adsRoot (TransformNode, ADS 偏移存储)
+//   └── cameraAnchor (TransformNode, 屏幕中心基准, position=screenOffset, 无旋转)
+//       ├── taczRenderRoot (TransformNode, TaCZ Bedrock模型基变换, Rz(180)翻转)
+//       │   └── weaponRoot (TransformNode, 应用 hipPose/adsPose/inspectPose)
+//       │       ├── modelRoot (TransformNode, 模型挂载点, scaling=modelScale, 无Z180)
+//       │       │   ├── aimAnchor (TransformNode, 瞄具锚点, ADS 时回中心)
+//       │       │   ├── muzzleAnchor (TransformNode, 枪口锚点)
+//       │       │   ├── rightGripAnchor (TransformNode, 右手握把)
+//       │       │   └── leftGripAnchor (TransformNode, 左手托枪/换弹)
+//       │       ├── rightHandRoot (TransformNode, 右手根, 独立于 modelRoot 避免缩放影响)
+//       │       ├── leftHandRoot (TransformNode, 左手根)
+//       │       └── heldItemRoot (TransformNode, 手持物: 弹匣/火箭弹)
+//       └── adsRoot (TransformNode, ADS 偏移存储, 不跟随taczRenderRoot翻转)
 
 // 默认校准值（手枪类，其他武器在 config.js 的 WEAPON_CALIBRATION 覆盖）
 const DEFAULT_CALIBRATION = {
@@ -78,14 +79,27 @@ export function createFirstPersonRig(scene, camera, weaponId, rawCalibration) {
   const cameraAnchor = new BABYLON.TransformNode(`${weaponId}-camera-anchor`, scene);
   cameraAnchor.parent = camera;
   cameraAnchor.position.set(...calibration.screenOffset);
+  // camera.setTarget(-Z) 导致 camera.rotation.y=π（约180°），cameraAnchor 作为子节点会继承这个旋转：
+  // camera局部+Z（默认前向）在rotation.y=π后映射到世界-Z（前方）；但idle_view marker的M_inv矩阵
+  // 是在Bedrock原始坐标系（无额外Y旋转）下计算的，需要cameraAnchor局部坐标系与marker计算时的
+  // 参考帧对齐，所以再加一个Y=π抵消相机旋转。
+  // taczRenderRoot.z=π 是TaCZ原版Bedrock模型Z轴翻转，与Y180补偿是独立的两个变换，不冲突。
+  cameraAnchor.rotation.y = Math.PI;
+
+  // taczRenderRoot：TaCZ Bedrock模型基变换根，补Z轴180度翻转
+  // 对照TaCZ: poseStack.mulPose(Axis.ZP.rotationDegrees(180f))
+  // 放在cameraAnchor和weaponRoot之间，不污染cameraAnchor屏幕基准语义
+  const taczRenderRoot = new BABYLON.TransformNode(`${weaponId}-tacz-render-root`, scene);
+  taczRenderRoot.parent = cameraAnchor;
+  taczRenderRoot.rotation.z = Math.PI;
 
   // weaponRoot：武器整体根，应用 hipPose/adsPose
   const weaponRoot = new BABYLON.TransformNode(`${weaponId}-weapon-root`, scene);
-  weaponRoot.parent = cameraAnchor;
+  weaponRoot.parent = taczRenderRoot;
   weaponRoot.position.set(...calibration.hipPose.position);
   weaponRoot.rotation.set(...calibration.hipPose.rotation);
 
-  // modelRoot：模型挂载点，应用 modelScale
+  // modelRoot：模型挂载点，应用 modelScale，不再放置Z180翻转
   const modelRoot = new BABYLON.TransformNode(`${weaponId}-model-root`, scene);
   modelRoot.parent = weaponRoot;
   modelRoot.scaling.setAll(calibration.modelScale);
@@ -135,6 +149,7 @@ export function createFirstPersonRig(scene, camera, weaponId, rawCalibration) {
     calibration,
     adsPose,
     cameraAnchor,
+    taczRenderRoot,
     weaponRoot,
     modelRoot,
     aimAnchor,

@@ -27,7 +27,7 @@ test("key public assets exist", () => {
 });
 
 test("V2 sound files exist for all SOUND_PATHS", () => {
-  // SOUND_PATHS 含字符串值和 { magout, magin } 对象值（AK47/AWP/P90 分段换弹）
+  // SOUND_PATHS 含字符串值和 { magout, magin } 对象值（AK47/AWP 分段换弹）
   flattenAssetPaths(SOUND_PATHS).forEach((soundPath) => {
     assert.equal(existsSync(join(root, "public", soundPath)), true, soundPath);
   });
@@ -39,14 +39,6 @@ test("Babylon runtime dependencies are declared", () => {
   assert.equal(Boolean(packageJson.dependencies["@babylonjs/gui"]), true);
   assert.equal(Boolean(packageJson.dependencies["@babylonjs/loaders"]), true);
   assert.equal(Boolean(packageJson.dependencies.three), false);
-});
-
-test("P90 3D source assets are structurally usable", () => {
-  const model = JSON.parse(readFileSync(join(root, "public", ASSET_PATHS.weaponModels.p90), "utf8"));
-  assert.ok(Array.isArray(model.elements), "elements array");
-  assert.ok(model.elements.length > 20, `part count ${model.elements.length}`);
-  assert.deepEqual(model.texture_size, [128, 128]);
-  assert.equal(model.textures["2"], "tac:items/p90/p90_1");
 });
 
 test("block material spec keeps top side and bottom textures distinct", () => {
@@ -112,11 +104,6 @@ test("weapon first-person configs are 3D-only with muzzle anchors", () => {
 test("reload part bindings use explicit element indices, not yRange", () => {
   for (const id of WEAPON_ORDER) {
     const parts = WEAPON_CONFIG[id].modelConfig.reloadParts;
-    // rpg7 火箭筒无传统弹匣 bone，reloadParts 为空对象，跳过 magazine 检查
-    if (id === "rpg7") {
-      assert.equal(Object.keys(parts).length, 0, "rpg7 reloadParts 应为空对象");
-      continue;
-    }
     // TaCZ 原生武器走 boneMap 驱动，不使用 elementIndices
     if (TAIZ_NATIVE_WEAPONS.includes(id)) {
       continue;
@@ -148,16 +135,16 @@ test("TaCZ 原生武器 geo/display/texture/animation 资源存在", () => {
 });
 
 test("TaCZ 原生武器不走 buildFirstPersonBlockbenchMesh 扁平路径", () => {
-  // Phase 5 后 9 把武器全部走 TaCZ 原生路径，校准数据由 WEAPON_CALIBRATION 提供
+  // Phase 5 后 5 把目标武器全部走 TaCZ 原生路径，校准数据由 WEAPON_CALIBRATION 提供
   for (const id of TAIZ_NATIVE_WEAPONS) {
     assert.equal(TAIZ_NATIVE_WEAPONS.includes(id), true, `${id} 在原生白名单中`);
     assert.ok(WEAPON_CONFIG[id].modelConfig, `${id} 有 modelConfig`);
   }
 });
 
-// 阶段 0：验证全部 9 把武器的 TaCZ 资源链完整性（display + geo + texture + animation）
-// 即使 5 把旧武器暂时仍走旧 Blockbench 路径，资源文件必须提前就位以便后续迁移
-test("全部 9 把武器 TaCZ 资源链完整（display + geo + texture + animation）", () => {
+// 阶段 0：验证全部 5 把目标武器的 TaCZ 资源链完整性（display + geo + texture + animation）
+// 资源文件必须提前就位以便后续迁移
+test("全部 5 把武器 TaCZ 资源链完整（display + geo + texture + animation）", () => {
   for (const id of WEAPON_ORDER) {
     assert.equal(existsSync(join(root, "public", ASSET_PATHS.taczGeoModels[id])), true, `${id} geo.json 存在`);
     assert.equal(existsSync(join(root, "public", ASSET_PATHS.taczWeaponTextures[id])), true, `${id} diffuse 贴图存在`);

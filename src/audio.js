@@ -183,7 +183,7 @@ function playFallbackGunSound(type) {
   osc.stop(now + 0.15);
 }
 
-// 分段换弹音播放：AK47/AWP/P90 无 reload 单文件，用 magout+magin 两段音按时序播放。
+// 分段换弹音播放：AK47/AWP 无 reload 单文件，用 magout+magin 两段音按时序播放。
 // t=0 播放 magout（拔弹匣），t=feedDelay 播放 magin（插弹匣）。
 // feedDelay 来自 V2 data.json 的 feed.empty / feed.tactical 时间点。
 // 保存 timer ID 以便切枪/取消换弹时清理，避免"已切枪，旧枪插弹匣音又响"。

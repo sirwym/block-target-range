@@ -12,39 +12,22 @@ import {
   isBoneInCategory,
 } from "../src/visibilityProfile.js";
 
-const WEAPONS = ["glock17", "m4", "ak47", "awp", "p90", "deagle_golden", "rpg7", "m107", "m95"];
+const WEAPONS = ["m4", "m95", "deagle_golden", "awp", "ak47"];
 const GEO_DIR = path.resolve("public/assets/tacz/geo_models/gun");
 const GEO_FILE_BY_WEAPON = {
-  glock17: "glock_17_geo.json",
   m4: "m4a1_geo.json",
   ak47: "ak47_geo.json",
   awp: "ai_awp_geo.json",
-  p90: "p90_geo.json",
   deagle_golden: "deagle_golden_geo.json",
-  rpg7: "rpg7_geo.json",
-  m107: "m107_geo.json",
   m95: "m95_geo.json",
 };
 // 少数动画 profile 使用历史别名，运行时由动画映射层处理；可见性隐藏规则不得依赖这些名字。
-const ALLOWED_ANIMATION_ALIASES = {
-  p90: ["ump45_bolt"],
-};
+const ALLOWED_ANIMATION_ALIASES = {};
 
 // 原始 taczGeoModel.js 硬编码值，用于验证迁移正确性
 const ORIGINAL_DEFAULT_HIDDEN_BONE_ROOTS = {
   deagle_golden: ["mag_extended_1", "mag_extended_2", "mag_extended_3", "additional_magazine"],
-  m107: ["sight_folded", "mag_extended_1", "mag_extended_2", "mag_extended_3", "bullet_shell", "bullet_shell2", "bullet_shell3"],
   m95: ["sight_folded", "mag_extended_1", "mag_extended_2", "mag_extended_3", "shell_ejection"],
-};
-
-const ORIGINAL_DEFAULT_HIDDEN_BONE_CUBES = {
-  m107: {
-    upper: [18, 33, 35, 37, 40, 42, 44, 46],
-    group12: true,
-  },
-  m95: {
-    M: [16, 17, 34, 35, 40, 41],
-  },
 };
 
 function createScene() {
@@ -76,7 +59,7 @@ test("DEFAULT_VISIBILITY_PROFILE 字段完整", () => {
   assert.ok(Array.isArray(DEFAULT_VISIBILITY_PROFILE.animationControlledBones));
 });
 
-test("getVisibilityProfile 9 武器都返回有效 profile", () => {
+test("getVisibilityProfile 5 武器都返回有效 profile", () => {
   for (const weaponId of WEAPONS) {
     const profile = getVisibilityProfile(weaponId);
     assert.ok(profile, `${weaponId} 有 profile`);
@@ -94,7 +77,7 @@ test("getVisibilityProfile 未知武器返回 DEFAULT_VISIBILITY_PROFILE", () =>
   assert.deepEqual(profile.shellBones, []);
 });
 
-test("迁移正确性：deagle_golden/m107/m95 defaultHiddenBones 与原 DEFAULT_HIDDEN_BONE_ROOTS 一致", () => {
+test("迁移正确性：deagle_golden/m95 defaultHiddenBones 与原 DEFAULT_HIDDEN_BONE_ROOTS 一致", () => {
   for (const [weaponId, expectedHidden] of Object.entries(ORIGINAL_DEFAULT_HIDDEN_BONE_ROOTS)) {
     const profile = getVisibilityProfile(weaponId);
     for (const bone of expectedHidden) {
@@ -106,25 +89,37 @@ test("迁移正确性：deagle_golden/m107/m95 defaultHiddenBones 与原 DEFAULT
   }
 });
 
-test("迁移正确性：m107/m95 hiddenBoneCubes 与原 DEFAULT_HIDDEN_BONE_CUBES 一致", () => {
-  for (const [weaponId, expectedCubes] of Object.entries(ORIGINAL_DEFAULT_HIDDEN_BONE_CUBES)) {
+test("Phase3v12：deagle_golden/awp hiddenBoneCubes 为空，m95/m4/ak47 保留 MCP 诊断最小规则集", () => {
+  // deagle_golden/awp：MCP 诊断全部 projectionUnreliable（不可见），无需隐藏
+  for (const weaponId of ["deagle_golden", "awp"]) {
     const profile = getVisibilityProfile(weaponId);
-    for (const [boneName, rule] of Object.entries(expectedCubes)) {
-      assert.ok(
-        profile.hiddenBoneCubes[boneName] !== undefined,
-        `${weaponId} hiddenBoneCubes 应包含 ${boneName}`
-      );
-      if (rule === true) {
-        assert.equal(profile.hiddenBoneCubes[boneName], true, `${weaponId} ${boneName} = true`);
-      } else {
-        assert.deepEqual(
-          profile.hiddenBoneCubes[boneName],
-          rule,
-          `${weaponId} ${boneName} cube 索引一致`
-        );
-      }
-    }
+    assert.deepEqual(
+      profile.hiddenBoneCubes,
+      {},
+      `${weaponId} hiddenBoneCubes 应为空对象（MCP 诊断无 visible outlier）`
+    );
   }
+  // m95：Phase3v12 MCP 诊断 top pose [0,π,π/2] 下 bone 子树 8 个 cube 飞到屏幕右侧外
+  const m95 = getVisibilityProfile("m95");
+  assert.deepEqual(
+    m95.hiddenBoneCubes.bone,
+    [2, 4, 5, 14, 15, 16, 17, 90],
+    "m95 隐藏 bone cube 2/4/5/14/15/16/17/90（body 子树 main outlier）"
+  );
+  // m4：MCP 诊断发现 4 个 visible outlier + 多个 unreliable bone
+  const m4 = getVisibilityProfile("m4");
+  assert.equal(m4.hiddenBoneCubes.bone2, true, "m4 隐藏 bone2（visible outlier）");
+  assert.equal(m4.hiddenBoneCubes.fore_sight3, true, "m4 隐藏 fore_sight3（unreliable）");
+  assert.equal(m4.hiddenBoneCubes.grip2, true, "m4 隐藏 grip2（unreliable）");
+  assert.deepEqual(m4.hiddenBoneCubes.upper2, [18, 25], "m4 隐藏 upper2 cube 18/25（大块 visible outlier）");
+  assert.deepEqual(m4.hiddenBoneCubes.lower2, [12, 47, 51], "m4 隐藏 lower2 cube 12/47/51");
+  assert.ok(m4.defaultHiddenBones.includes("rings3"), "m4 defaultHiddenBones 含 rings3（bone38/bone70 父节点）");
+
+  // ak47：MCP 诊断全部 projectionUnreliable，但 steel/wood/muzzle_default 之前已确认需要隐藏
+  const ak47 = getVisibilityProfile("ak47");
+  assert.equal(ak47.hiddenBoneCubes.steel, true, "ak47 隐藏 steel");
+  assert.equal(ak47.hiddenBoneCubes.wood, true, "ak47 隐藏 wood");
+  assert.equal(ak47.hiddenBoneCubes.muzzle_default, true, "ak47 隐藏 muzzle_default");
 });
 
 test("applyVisibilityProfile 隐藏 defaultHiddenBones + heldItemBones + shellBones", () => {
@@ -278,15 +273,6 @@ test("isBoneInCategory 4 个分类", () => {
   assert.equal(isBoneInCategory("root", profile, "unknown"), false);
 });
 
-test("m107 profile 含 sight_folded + mag_extended + bullet_shell", () => {
-  const profile = getVisibilityProfile("m107");
-  assert.ok(profile.defaultHiddenBones.includes("sight_folded"), "m107 隐藏 sight_folded");
-  assert.ok(profile.defaultHiddenBones.includes("mag_extended_1"), "m107 隐藏 mag_extended_1");
-  assert.ok(profile.defaultHiddenBones.includes("bullet_shell"), "m107 隐藏 bullet_shell");
-  assert.ok(profile.shellBones.includes("bullet_shell"), "m107 shellBones 含 bullet_shell");
-  assert.equal(profile.heldItemBones.includes("mags"), false, "m107 不再引用不存在的 mags");
-});
-
 test("m95 profile 含 sight_folded + shell_ejection", () => {
   const profile = getVisibilityProfile("m95");
   assert.ok(profile.defaultHiddenBones.includes("sight_folded"), "m95 隐藏 sight_folded");
@@ -300,11 +286,6 @@ test("deagle_golden profile 含扩展弹匣变体", () => {
   const profile = getVisibilityProfile("deagle_golden");
   assert.ok(profile.defaultHiddenBones.includes("mag_extended_1"), "deagle_golden 隐藏 mag_extended_1");
   assert.ok(profile.heldItemBones.includes("additional_magazine"), "deagle_golden heldItemBones 含 additional_magazine");
-});
-
-test("rpg7 profile 含 mag_hand 手持物", () => {
-  const profile = getVisibilityProfile("rpg7");
-  assert.ok(profile.heldItemBones.includes("mag_hand"), "rpg7 heldItemBones 含 mag_hand（火箭弹）");
 });
 
 test("m4/ak47 profile 含静态默认隐藏的附件变体", () => {
